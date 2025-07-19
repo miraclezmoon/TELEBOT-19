@@ -168,38 +168,38 @@ function setupBotHandlers() {
     
     const isNewUser = !user.lastDailyReward && user.coins === 0;
     const welcomeMessage = isNewUser 
-      ? `🎉 Welcome to the Coin Reward System, ${user.firstName || user.username}!
+      ? `Welcome to the Coin Reward System, ${user.firstName || user.username}!
 
-💰 **Starting Balance:** ${user.coins} coins
+**Starting Balance:** ${user.coins} coins
 
 **How to Earn Coins:**
 • Daily check-in: ${dailyRewardAmount} coin
 • Invite friends: ${referralReward} coin per referral
 • Join raffles and shop for rewards!
 
-**Choose what you'd like to do:**`
-      : `🎉 Welcome back, ${user.firstName || user.username}!
+Choose what you'd like to do:`
+      : `Welcome back, ${user.firstName || user.username}!
 
-💰 **Current Balance:** ${user.coins} coins
-🔥 **Consecutive Check-ins:** ${user.streak} days
+**Current Balance:** ${user.coins} coins
+**Consecutive Check-ins:** ${user.streak} days
 
-**Choose what you'd like to do:**`;
+Choose what you'd like to do:`;
 
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '✅ Daily Check-in', callback_data: 'daily_checkin' }
+          { text: 'My Daily Reward', callback_data: 'daily_checkin' }
         ],
         [
-          { text: '🎪 Join Raffle', callback_data: 'view_raffles' },
-          { text: '🛍️ Coin Shop', callback_data: 'view_shop' }
+          { text: 'My Info', callback_data: 'my_info' },
+          { text: 'Shop Items', callback_data: 'view_shop' }
         ],
         [
-          { text: `👥 Invite Friends (+${referralReward} coins each)`, callback_data: 'referral_link' }
+          { text: 'Join A Raffle', callback_data: 'view_raffles' },
+          { text: 'Invite A Friend', callback_data: 'referral_link' }
         ],
         [
-          { text: '💰 My Info', callback_data: 'my_info' },
-          { text: `🎁 Enter Invitation Code (+${referralReward} coins)`, callback_data: 'enter_code' }
+          { text: 'Enter Invitation Code', callback_data: 'enter_code' }
         ]
       ]
     };
@@ -641,27 +641,27 @@ async function handleDailyCheckin(chatId: number, telegramId: string, user: any,
   const keyboard = {
     inline_keyboard: [
       [
-        { text: '✅ Daily Check-in (Completed)', callback_data: 'daily_completed' }
+        { text: 'My Daily Reward ✓', callback_data: 'daily_completed' }
       ],
       [
-        { text: '🎪 Join Raffle', callback_data: 'view_raffles' },
-        { text: '🛍️ Coin Shop', callback_data: 'view_shop' }
+        { text: 'My Info', callback_data: 'my_info' },
+        { text: 'Shop Items', callback_data: 'view_shop' }
       ],
       [
-        { text: `👥 Invite Friends (+${referralReward} coins each)`, callback_data: 'referral_link' }
+        { text: 'Join A Raffle', callback_data: 'view_raffles' },
+        { text: 'Invite A Friend', callback_data: 'referral_link' }
       ],
       [
-        { text: '💰 My Info', callback_data: 'my_info' },
-        { text: `🎁 Enter Invitation Code (+${referralReward} coins)`, callback_data: 'enter_code' }
+        { text: 'Enter Invitation Code', callback_data: 'enter_code' }
       ]
     ]
   };
   
   bot.editMessageText(
-    `🎉 Hello ${user.firstName || user.username}! Welcome to the Coin Reward System!
+    `Welcome back, ${user.firstName || user.username}!
 
-💰 **Current Balance:** ${updatedUser.coins} coins
-🔥 **Consecutive Check-ins:** 1 days
+**Current Balance:** ${updatedUser.coins} coins
+**Consecutive Check-ins:** ${updatedUser.streak || 1} days
 
 **How to Earn Coins:**
 • Daily check-in: ${dailyRewardAmount} coin
@@ -1008,10 +1008,10 @@ async function handleBackToMenu(chatId: number, telegramId: string, user: any, c
   const dailyRewardAmount = parseInt(dailyRewardStr, 10);
   const referralReward = parseInt(referralRewardStr, 10);
   
-  const welcomeMessage = `🎉 Hello ${updatedUser.firstName || updatedUser.username}! Welcome to the Coin Reward System!
+  const welcomeMessage = `Welcome back, ${updatedUser.firstName || updatedUser.username}!
 
-💰 **Current Balance:** ${updatedUser.coins} coins
-🔥 **Consecutive Check-ins:** ${updatedUser.lastDailyReward ? '1' : '0'} days
+**Current Balance:** ${updatedUser.coins} coins
+**Consecutive Check-ins:** ${updatedUser.streak || 0} days
 
 **How to Earn Coins:**
 • Daily check-in: ${dailyRewardAmount} coin${dailyRewardAmount > 1 ? 's' : ''}
@@ -1023,18 +1023,18 @@ Click buttons below to start earning!`;
   const keyboard = {
     inline_keyboard: [
       [
-        { text: canClaimDailyReward(updatedUser.lastDailyReward) ? '✅ Daily Check-in' : '✅ Daily Check-in (Completed)', callback_data: 'daily_checkin' }
+        { text: canClaimDailyReward(updatedUser.lastDailyReward) ? 'My Daily Reward' : 'My Daily Reward ✓', callback_data: 'daily_checkin' }
       ],
       [
-        { text: '🎪 Join Raffle', callback_data: 'view_raffles' },
-        { text: '🛍️ Coin Shop', callback_data: 'view_shop' }
+        { text: 'My Info', callback_data: 'my_info' },
+        { text: 'Shop Items', callback_data: 'view_shop' }
       ],
       [
-        { text: `👥 Invite Friends (+${referralReward} coins each)`, callback_data: 'referral_link' }
+        { text: 'Join A Raffle', callback_data: 'view_raffles' },
+        { text: 'Invite A Friend', callback_data: 'referral_link' }
       ],
       [
-        { text: '💰 My Info', callback_data: 'my_info' },
-        { text: `🎁 Enter Invitation Code (+${referralReward} coins)`, callback_data: 'enter_code' }
+        { text: 'Enter Invitation Code', callback_data: 'enter_code' }
       ]
     ]
   };
