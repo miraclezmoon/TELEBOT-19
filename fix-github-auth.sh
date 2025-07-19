@@ -1,0 +1,30 @@
+#!/bin/bash
+
+echo "==================================="
+echo "🔧 Fixing GitHub Authentication"
+echo "==================================="
+echo ""
+
+# Remove the existing origin
+echo "Removing existing remote..."
+git remote remove origin 2>/dev/null || echo "No existing remote to remove"
+
+echo ""
+echo "📝 You need to add your GitHub Personal Access Token to the URL"
+echo ""
+echo "The format is:"
+echo "https://USERNAME:TOKEN@github.com/USERNAME/REPO.git"
+echo ""
+echo "For you, it should be:"
+echo "https://miraclezmoon:YOUR_PERSONAL_ACCESS_TOKEN@github.com/miraclezmoon/TELEBOT-19.git"
+echo ""
+echo "Steps:"
+echo "1. Go to GitHub → Settings → Developer settings → Personal access tokens"
+echo "2. Generate a new token with 'repo' permissions"
+echo "3. Copy the token"
+echo "4. Run this command with your token:"
+echo ""
+echo "git remote add origin https://miraclezmoon:YOUR_TOKEN_HERE@github.com/miraclezmoon/TELEBOT-19.git"
+echo "git push -u origin main"
+echo ""
+echo "⚠️  Replace YOUR_TOKEN_HERE with your actual token!"
