@@ -157,4 +157,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Built with Replit AI
 - UI components from [shadcn/ui](https://ui.shadcn.com)
-- Icons from [Lucide](https://lucide.dev)
+- Icons from [Lucide](https://lucide.dev)# TELEBOT-19
