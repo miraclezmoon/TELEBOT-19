@@ -34,8 +34,8 @@ export default function Dashboard() {
 
   // Process user activity data
   const processActivityData = () => {
-    // Use the actual date from the system - July 14, 2025
-    const now = new Date('2025-07-14T23:00:00');
+    // Use the actual current date
+    const now = new Date();
     const days = activityRange === '7days' ? 7 : activityRange === '30days' ? 30 : 90;
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     
