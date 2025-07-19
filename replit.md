@@ -384,3 +384,14 @@ The application follows modern web development practices with TypeScript through
   - Disabled users receive message: "❌ Your account has been disabled. Please contact support for assistance."
   - Admins can enable/disable user access to bot with single click
   - Feature prevents banned/problematic users from using the bot while keeping their data intact
+- Fixed dashboard date display issue:
+  - Removed hardcoded July 2025 date from dashboard User Activity chart
+  - Chart now uses actual current date with `new Date()` instead of static date
+  - User Activity chart displays correct real-time date ranges (7, 30, or 90 days from today)
+  - X-axis dates now update daily and show accurate month/day labels
+- Completed TELEBOT-19 rebranding:
+  - Updated HTML title to "TELEBOT-19 Admin Panel"
+  - Changed login page title to "TELEBOT-19 Admin Login"
+  - Updated sidebar branding from "HelloKorean" to "TELEBOT-19"
+  - Verified README.md and LICENSE already have TELEBOT-19 references
+  - All frontend components now display TELEBOT-19 branding consistently
