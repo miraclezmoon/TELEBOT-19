@@ -47,7 +47,7 @@ export default function Sidebar() {
             <Send className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-foreground">HelloKorean</h1>
+            <h1 className="text-xl font-bold text-foreground">TELEBOT-19</h1>
             <p className="text-sm text-muted-foreground">Bot Admin Panel</p>
           </div>
         </div>

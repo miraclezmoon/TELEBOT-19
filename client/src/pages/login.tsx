@@ -65,7 +65,7 @@ export default function Login() {
               <Send className="h-6 w-6 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Admin Login</CardTitle>
+          <CardTitle className="text-2xl">TELEBOT-19 Admin Login</CardTitle>
           <p className="text-gray-600">Sign in to access the admin panel</p>
         </CardHeader>
         <CardContent>
