@@ -72,6 +72,35 @@ export default function Users() {
     });
   };
 
+  const handleToggleUserStatus = async (user: User) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`/api/users/${user.id}/toggle-status`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle user status');
+      }
+
+      toast({
+        title: "Success",
+        description: `User ${user.isActive ? 'disabled' : 'enabled'} successfully`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['/api/users'] });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to toggle user status. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = searchTerm === '' || 
       user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -222,6 +251,13 @@ export default function Users() {
                         >
                           <Minus className="h-4 w-4" />
                           Withdraw
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={user.isActive ? "destructive" : "default"}
+                          onClick={() => handleToggleUserStatus(user)}
+                        >
+                          {user.isActive ? 'Disable' : 'Enable'}
                         </Button>
                       </div>
                     </td>

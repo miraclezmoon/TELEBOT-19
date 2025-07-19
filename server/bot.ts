@@ -123,6 +123,11 @@ function setupBotHandlers() {
       
       user = await storage.createUser(newUser);
     } else {
+      // Check if user is disabled
+      if (!user.isActive) {
+        bot.sendMessage(chatId, '❌ Your account has been disabled. Please contact support for assistance.');
+        return;
+      }
       // Sync/update existing user data daily
       const updatedData = {
         username: msg.from?.username || user.username,
@@ -225,6 +230,11 @@ bot.onText(/\/daily/, async (msg) => {
     const user = await storage.getUserByTelegramId(telegramId);
     if (!user) {
       bot.sendMessage(chatId, 'Please start the bot first with /start');
+      return;
+    }
+    
+    if (!user.isActive) {
+      bot.sendMessage(chatId, '❌ Your account has been disabled. Please contact support for assistance.');
       return;
     }
     
@@ -561,6 +571,14 @@ bot.on('callback_query', async (callbackQuery) => {
     const user = await storage.getUserByTelegramId(telegramId);
     if (!user) {
       bot.answerCallbackQuery(callbackQuery.id, { text: 'Please start the bot first with /start' });
+      return;
+    }
+    
+    if (!user.isActive) {
+      bot.answerCallbackQuery(callbackQuery.id, { 
+        text: '❌ Your account has been disabled. Please contact support for assistance.',
+        show_alert: true
+      });
       return;
     }
 

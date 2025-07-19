@@ -368,4 +368,19 @@ The application follows modern web development practices with TypeScript through
   - All API endpoints working correctly
   - Database connectivity established
   - Telegram bot operational with proper error handling
-  - Ready for deployment with Railway configuration files in placenment
+  - Ready for deployment with Railway configuration files in placement
+
+### July 19, 2025
+- Updated Telegram bot UI to clean, modern design:
+  - Removed emoji-heavy buttons for cleaner text labels
+  - Reorganized button layout: "My Daily Reward" at top, then "My Info | Shop Items", "Join A Raffle | Invite A Friend", and "Enter Invitation Code" at bottom
+  - Simplified welcome messages without excessive emojis
+  - Added simple checkmark (✓) for completed daily reward
+  - Professional appearance matching user's screenshot reference
+- Implemented user disable/enable functionality:
+  - Added "Disable/Enable" button to Users page in admin panel
+  - Created `/api/users/:id/toggle-status` endpoint to toggle user's isActive status
+  - Bot now checks if user is active before processing any commands or callbacks
+  - Disabled users receive message: "❌ Your account has been disabled. Please contact support for assistance."
+  - Admins can enable/disable user access to bot with single click
+  - Feature prevents banned/problematic users from using the bot while keeping their data intact

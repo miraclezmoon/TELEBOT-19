@@ -173,6 +173,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'Failed to adjust coins' });
     }
   });
+
+  // Toggle user status (enable/disable)
+  app.post('/api/users/:id/toggle-status', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const user = await storage.getUserById(parseInt(id));
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Toggle the isActive status
+      const updatedUser = await storage.updateUserById(user.id, { 
+        isActive: !user.isActive 
+      });
+      
+      res.json({ 
+        success: true, 
+        user: updatedUser,
+        message: `User ${updatedUser.isActive ? 'enabled' : 'disabled'} successfully`
+      });
+    } catch (error) {
+      console.error('Toggle user status error:', error);
+      res.status(500).json({ message: 'Failed to toggle user status' });
+    }
+  });
   
   app.patch('/api/users/:telegramId', requireAuth, async (req, res) => {
     try {
