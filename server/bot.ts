@@ -1,11 +1,18 @@
-// src/bot.ts  – fully self‑contained Telegram bot
+// ────────────────────────────────────────────────────────────────
+// src/bot.ts   – single, self‑contained Telegram bot module
+// ────────────────────────────────────────────────────────────────
 import TelegramBot, { ReplyKeyboardMarkup } from 'node-telegram-bot-api';
-import { storage } from './storage';
 import { nanoid } from 'nanoid';
+import { storage } from './storage';
+
+/* ─────────────── Globals ─────────────── */
 
 let bot: TelegramBot | null = null;
 
-/* ──────────────────────────  Helpers  ────────────────────────── */
+/** Ephemeral per‑user state (for the invitation‑code prompt) */
+const userStates = new Map<string, { state: 'awaiting_code'; timestamp: number }>();
+
+/* ─────────────── Helper utilities ─────────────── */
 
 const kb = {
   main: <ReplyKeyboardMarkup>{
@@ -19,51 +26,50 @@ const kb = {
   },
 };
 
-function generateReferralCode() {
-  return nanoid(8).toUpperCase();
-}
+const generateReferralCode = () => nanoid(8).toUpperCase();
 
-function pstDate(d = new Date()) {
-  // UTC‑8
-  return new Date(d.getTime() - 8 * 60 * 60 * 1000);
-}
-function samePstDay(a: Date, b: Date) {
-  const aP = pstDate(a); const bP = pstDate(b);
-  return (
-    aP.getFullYear() === bP.getFullYear() &&
-    aP.getMonth() === bP.getMonth() &&
-    aP.getDate() === bP.getDate()
-  );
-}
+const pst = (d = new Date()) => new Date(d.getTime() - 8 * 60 * 60 * 1000);
+const isSamePstDay = (a: Date, b: Date) => {
+  const A = pst(a),
+    B = pst(b);
+  return A.getFullYear() === B.getFullYear() &&
+    A.getMonth() === B.getMonth() &&
+    A.getDate() === B.getDate();
+};
 
-/* ───────────────────  Initialise (webhook vs polling)  ────────────────── */
+/* ─────────────── Boot‑strapping ─────────────── */
 
+/**
+ * Call this once during server start‑up (index.ts).
+ */
 export async function initializeBot() {
+  /* clean up any previous instance (hot‑reload etc.) */
   if (bot) {
     await bot.stopPolling().catch(() => {});
     bot.removeAllListeners();
     bot = null;
   }
 
-  const token =
+  const BOT_TOKEN =
     (await storage.getBotSetting('bot_token'))?.value ||
     process.env.BOT_TOKEN ||
     process.env.TELEGRAM_BOT_TOKEN;
 
-  if (!token) {
-    console.error('⚠️  BOT_TOKEN missing – set env var or DB setting');
+  if (!BOT_TOKEN) {
+    console.error('⚠️  BOT_TOKEN missing – set it as an env var or DB setting');
     return null;
   }
 
   const isProd = process.env.NODE_ENV === 'production';
-  const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+  const publicDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
 
-  bot = new TelegramBot(token, { polling: !isProd });
+  /* Create bot instance (polling in dev, webhook in prod) */
+  bot = new TelegramBot(BOT_TOKEN, { polling: !isProd });
 
-  if (isProd && domain) {
-    const url = `https://${domain}/api/telegram-webhook`;
-    await bot.setWebHook(url).catch((e) => console.error('Webhook error', e));
-    console.log('✅ Webhook set:', url);
+  if (isProd && publicDomain) {
+    const webhookUrl = `https://${publicDomain}/api/telegram-webhook`;
+    await bot.setWebHook(webhookUrl).catch((e) => console.error('Webhook error', e));
+    console.log('✅ Webhook set:', webhookUrl);
   } else {
     console.log('✅ Bot running in polling mode');
   }
@@ -72,7 +78,10 @@ export async function initializeBot() {
   return bot;
 }
 
-/* ──────────────────────  Core Handlers  ─────────────────────── */
+/** Export for the rest of the server to grab the live instance */
+export const getBot = () => bot;
+
+/* ───────────────  Handlers  ─────────────── */
 
 function attachHandlers() {
   if (!bot) return;
@@ -80,46 +89,57 @@ function attachHandlers() {
   bot.on('polling_error', console.error);
   bot.on('error', console.error);
 
-  /* Slash‑commands (still supported) */
-  bot.onText(/^\/start(?:\s+(\S+))?/, (msg, match) => startCmd(msg, match?.[1]));
-  bot.onText(/^\/daily$/, (m) => handleDaily(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/myinfo$/, (m) => handleInfo(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/shop$/, (m) => handleShop(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/raffle$/, (m) => handleRaffles(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/referral$/, (m) => handleReferral(m.chat.id, m.from!.id.toString()));
+  /* Slash commands (still allowed) */
+  bot.onText(/^\/start(?:\s+(\S+))?/, (msg, m) => cmdStart(msg, m?.[1]));
+  bot.onText(/^\/daily$/, (m) => cmdDaily(m.chat.id, m.from!.id.toString()));
+  bot.onText(/^\/myinfo$/, (m) => cmdInfo(m.chat.id, m.from!.id.toString()));
+  bot.onText(/^\/shop$/, (m) => cmdShop(m.chat.id, m.from!.id.toString()));
+  bot.onText(/^\/raffle$/, (m) => cmdRaffles(m.chat.id, m.from!.id.toString()));
+  bot.onText(/^\/referral$/, (m) => cmdReferral(m.chat.id, m.from!.id.toString()));
   bot.onText(/^\/entercode$/, (m) => promptInviteCode(m.chat.id, m.from!.id.toString()));
 
-  /* Reply‑keyboard buttons → treat as virtual slash‑commands */
+  /* One single message handler for ALL text – buttons + invite‑code */
   bot.on('message', async (msg) => {
-    if (!msg.text || msg.text.startsWith('/')) return; // slash handled above
-    const { id: chatId } = msg.chat;
+    if (!msg.text) return; // ignore photos, stickers, etc.
+
+    const chatId = msg.chat.id;
     const uid = msg.from!.id.toString();
 
+    /* 1️⃣  Were we waiting for an invitation code from this user? */
+    const pending = userStates.get(uid);
+    if (pending?.state === 'awaiting_code' && !msg.text.startsWith('/')) {
+      userStates.delete(uid);
+      return handleInvitationCode(chatId, uid, msg.text.trim().toUpperCase());
+    }
+
+    /* 2️⃣  Otherwise treat as reply‑keyboard button press */
     switch (msg.text) {
       case 'My Daily Reward':
-        return handleDaily(chatId, uid);
+        return cmdDaily(chatId, uid);
       case 'My Info':
-        return handleInfo(chatId, uid);
+        return cmdInfo(chatId, uid);
       case 'Shop Items':
-        return handleShop(chatId, uid);
+        return cmdShop(chatId, uid);
       case 'Join A Raffle':
-        return handleRaffles(chatId, uid);
+        return cmdRaffles(chatId, uid);
       case 'Invite A Friend':
-        return handleReferral(chatId, uid);
+        return cmdReferral(chatId, uid);
       case 'Enter Invitation Code':
         return promptInviteCode(chatId, uid);
+      default:
+        return; // ignore other free‑text
     }
   });
 }
 
-/* ───────────  Command Implementations  (trimmed for brevity) ─────────── */
+/* ───────────────  Command implementations  ─────────────── */
 
-async function startCmd(msg: TelegramBot.Message, referral?: string) {
+async function cmdStart(msg: TelegramBot.Message, referral?: string) {
   if (!bot) return;
   const chatId = msg.chat.id;
   const uid = msg.from!.id.toString();
 
-  /* ── Upsert user ── */
+  /* Upsert user */
   let user = await storage.getUserByTelegramId(uid);
   if (!user) {
     user = await storage.createUser({
@@ -133,12 +153,12 @@ async function startCmd(msg: TelegramBot.Message, referral?: string) {
     });
   }
 
-  /* ── Handle referral bonus for fresh sign‑ups ── */
+  /* Referral bonus (first time only) */
   if (referral && !user.referredBy) {
     const referrer = await storage.getUserByReferralCode(referral);
     if (referrer) {
-      const reward = parseInt((await storage.getBotSetting('referral_reward_amount'))?.value ?? '1', 10);
-      await storage.awardReward(referrer.telegramId, reward, 'referral', `Invited ${user.firstName || user.username}`);
+      const reward = +((await storage.getBotSetting('referral_reward_amount'))?.value || 1);
+      await storage.awardReward(referrer.telegramId, reward, 'referral', `Invited ${user.username}`);
       await storage.awardReward(uid, reward, 'referral', 'Referral welcome bonus');
       await storage.updateUser(uid, { referredBy: referral });
       user.coins += reward;
@@ -148,148 +168,148 @@ async function startCmd(msg: TelegramBot.Message, referral?: string) {
 
   bot.sendMessage(
     chatId,
-    `👋 Welcome${user.firstName ? ' ' + user.firstName : ''}! Select an option below.`,
-    { reply_markup: kb.main }
+    `👋 Welcome${user.firstName ? ` ${user.firstName}` : ''}! Choose an option below.`,
+    { reply_markup: kb.main },
   );
 }
 
-/* Daily reward */
-async function handleDaily(chatId: number, uid: string) {
+async function cmdDaily(chatId: number, uid: string) {
   if (!bot) return;
   const user = await storage.getUserByTelegramId(uid);
   if (!user) return bot.sendMessage(chatId, 'Please /start first');
 
-  if (user.lastDailyReward && samePstDay(user.lastDailyReward, new Date())) {
-    return bot.sendMessage(chatId, '⏰ You already claimed today. Come back tomorrow!');
+  if (user.lastDailyReward && isSamePstDay(user.lastDailyReward, new Date())) {
+    return bot.sendMessage(chatId, '⏰ Already claimed today. Come back tomorrow!');
   }
 
-  const reward = parseInt((await storage.getBotSetting('daily_reward_amount'))?.value ?? '1', 10);
+  const reward = +((await storage.getBotSetting('daily_reward_amount'))?.value || 1);
   const updated = await storage.claimDaily(uid, reward);
-  bot.sendMessage(
-    chatId,
-    `🎁 Claimed ${reward} coin${reward > 1 ? 's' : ''}! Current streak: ${updated.streak} days.\nBalance: ${updated.coins}`,
-    { reply_markup: kb.main }
-  );
-}
-
-/* Info */
-async function handleInfo(chatId: number, uid: string) {
-  if (!bot) return;
-  const user = await storage.getUserByTelegramId(uid);
-  if (!user) return bot.sendMessage(chatId, 'Please /start first');
-
-  const tx = await storage.getUserTransactions(user.id);
-  const last5 = tx.slice(0, 5)
-    .map(t => `${t.amount > 0 ? '+' : ''}${t.amount} – ${t.description}`)
-    .join('\n') || 'None yet';
 
   bot.sendMessage(
     chatId,
-    `🪙 Coins: ${user.coins}\nReferral code: ${user.referralCode}\n\nRecent transactions:\n${last5}`,
-    { reply_markup: kb.main }
+    `🎁 +${reward} coin${reward > 1 ? 's' : ''}!\nStreak: ${updated.streak} days\nBalance: ${updated.coins}`,
+    { reply_markup: kb.main },
   );
 }
 
-/* Shop */
-async function handleShop(chatId: number, uid: string) {
-  if (!bot) return;
-  const items = await storage.getActiveShopItems();
-  if (!items.length) return bot.sendMessage(chatId, '🏪 Shop is empty', { reply_markup: kb.main });
-
-  const msg = items
-    .map((it, i) =>
-      `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`
-    )
-    .join('\n');
-
-  bot.sendMessage(chatId, `🏪 Shop items:\n\n${msg}\n\n(Type the item number to buy)`, {
-    reply_markup: kb.main,
-  });
-}
-
-/* Raffles */
-async function handleRaffles(chatId: number, uid: string) {
-  if (!bot) return;
-  const raffles = await storage.getActiveRaffles();
-  if (!raffles.length) return bot.sendMessage(chatId, '🎪 No active raffles', { reply_markup: kb.main });
-
-  const msg = raffles
-    .map(
-      (r, i) =>
-        `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`
-    )
-    .join('\n\n');
-
-  bot.sendMessage(chatId, `🎪 Raffles:\n\n${msg}\n\n(Type the raffle number to enter)`, {
-    reply_markup: kb.main,
-  });
-}
-
-/* Referral link */
-async function handleReferral(chatId: number, uid: string) {
+async function cmdInfo(chatId: number, uid: string) {
   if (!bot) return;
   const user = await storage.getUserByTelegramId(uid);
   if (!user) return;
 
-  const reward = parseInt((await storage.getBotSetting('referral_reward_amount'))?.value ?? '1', 10);
+  const txs = await storage.getUserTransactions(user.id);
+  const recent = txs
+    .slice(0, 5)
+    .map((t) => `${t.amount > 0 ? '+' : ''}${t.amount} – ${t.description}`)
+    .join('\n') || 'None yet';
+
+  bot.sendMessage(
+    chatId,
+    `🪙 Coins: ${user.coins}\nReferral code: ${user.referralCode}\n\nRecent transactions:\n${recent}`,
+    { reply_markup: kb.main },
+  );
+}
+
+async function cmdShop(chatId: number, uid: string) {
+  if (!bot) return;
+  const items = await storage.getActiveShopItems();
+  if (!items.length) return bot.sendMessage(chatId, '🏪 Shop is empty.', { reply_markup: kb.main });
+
+  const body = items
+    .map(
+      (it, i) =>
+        `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`,
+    )
+    .join('\n');
+
+  bot.sendMessage(chatId, `🏪 Items:\n\n${body}\n\n(type item number to buy)`, {
+    reply_markup: kb.main,
+  });
+}
+
+async function cmdRaffles(chatId: number, uid: string) {
+  if (!bot) return;
+  const raffles = await storage.getActiveRaffles();
+  if (!raffles.length) return bot.sendMessage(chatId, '🎪 No active raffles.', { reply_markup: kb.main });
+
+  const body = raffles
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`,
+    )
+    .join('\n\n');
+
+  bot.sendMessage(chatId, `🎪 Raffles:\n\n${body}\n\n(type raffle number to enter)`, {
+    reply_markup: kb.main,
+  });
+}
+
+async function cmdReferral(chatId: number, uid: string) {
+  if (!bot) return;
+  const user = await storage.getUserByTelegramId(uid);
+  if (!user) return;
+
+  const reward = +((await storage.getBotSetting('referral_reward_amount'))?.value || 1);
   const me = await bot.getMe();
   const link = `https://t.me/${me.username}?start=${user.referralCode}`;
 
   bot.sendMessage(
     chatId,
-    `🔗 Share this link: ${link}\nBoth of you earn ${reward} coin${reward > 1 ? 's' : ''}!`,
-    { reply_markup: kb.main }
+    `🔗 Share: ${link}\nBoth of you earn ${reward} coin${reward > 1 ? 's' : ''}!`,
+    { reply_markup: kb.main },
   );
 }
 
-/* Prompt invitation code */
+/* Prompt invitation code (stores state) */
 function promptInviteCode(chatId: number, uid: string) {
   userStates.set(uid, { state: 'awaiting_code', timestamp: Date.now() });
-  return bot?.sendMessage(chatId, 'Please send the invitation code now:', {
-    reply_markup: kb.main,
-  });
+  return bot?.sendMessage(chatId, 'Please send the invitation code:', { reply_markup: kb.main });
 }
 
-/* Handle free‑text after we prompt for code */
-const userStates = new Map<string, { state: string; timestamp: number }>();
-
-bot?.on('message', async (msg) => {
-  if (!msg.text || msg.text.startsWith('/')) return;
-  const uid = msg.from!.id.toString();
-  const state = userStates.get(uid);
-  if (!state || state.state !== 'awaiting_code') return;
-
-  userStates.delete(uid);
-  const code = msg.text.trim().toUpperCase();
+/* Handle the code the user typed */
+async function handleInvitationCode(chatId: number, uid: string, code: string) {
+  if (!bot) return;
   const user = await storage.getUserByTelegramId(uid);
+  if (!user) return;
+
   const owner = await storage.getUserByReferralCode(code);
-
-  if (!owner || owner.id === user?.id) {
-    return bot?.sendMessage(msg.chat.id, '❌ Invalid invitation code.', {
-      reply_markup: kb.main,
-    });
+  if (!owner || owner.id === user.id) {
+    return bot.sendMessage(chatId, '❌ Invalid invitation code.', { reply_markup: kb.main });
+  }
+  if (user.referredBy) {
+    return bot.sendMessage(chatId, '❌ You already used a code.', { reply_markup: kb.main });
   }
 
-  if (user?.referredBy) {
-    return bot?.sendMessage(msg.chat.id, '❌ You already used a code.', {
-      reply_markup: kb.main,
-    });
-  }
-
-  const reward = parseInt((await storage.getBotSetting('referral_reward_amount'))?.value ?? '1', 10);
-  await storage.awardReward(owner.telegramId, reward, 'referral', `Invited ${user!.username}`);
+  const reward = +((await storage.getBotSetting('referral_reward_amount'))?.value || 1);
+  await storage.awardReward(owner.telegramId, reward, 'referral', `Invited ${user.username}`);
   const updated = await storage.awardReward(uid, reward, 'referral', 'Used invitation code');
   await storage.updateUser(uid, { referredBy: code });
 
-  bot?.sendMessage(
-    msg.chat.id,
+  bot.sendMessage(
+    chatId,
     `✅ Code accepted! +${reward} coins.\nBalance: ${updated.coins}`,
-    { reply_markup: kb.main }
+    { reply_markup: kb.main },
   );
-});
+}
 
-/* --------------------------------------------------------------------- */
+/* ───────────────────────  Broadcast utility  ─────────────────────── */
 
-export function getBot() {
-  return bot;
+export async function broadcastMessage(message: string) {
+  if (!bot) throw new Error('Bot not initialised');
+
+  const users = await storage.getActiveUsers();
+  let ok = 0,
+    fail = 0;
+
+  for (const u of users) {
+    try {
+      await bot.sendMessage(u.telegramId, `📢 ${message}`);
+      ok++;
+      await new Promise((r) => setTimeout(r, 50)); // tiny delay to avoid spam
+    } catch (e) {
+      console.error('Broadcast error to', u.telegramId, e);
+      fail++;
+    }
+  }
+  return { success: ok, failed: fail };
 }
