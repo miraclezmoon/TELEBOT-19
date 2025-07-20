@@ -1,101 +1,117 @@
-import express, { type Request, Response, NextFunction } from "express";
+// server/index.ts
+import express, { type Request, type Response, type NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { initializeBot, bot, getBot } from "./bot";
+import { initializeBot, getBot } from "./bot";   // ← only these from bot.ts
 
+/* ------------------------------------------------------------------ */
+/*  Express app setup                                                 */
+/* ------------------------------------------------------------------ */
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// ✅ Telegram webhook route (must come AFTER `app` is created)
-app.post('/telegram', (req, res) => {
-  bot?.processUpdate(req.body);
+/* ------------------------------------------------------------------ */
+/*  Telegram webhook endpoint                                         */
+/* ------------------------------------------------------------------ */
+app.post("/telegram", (req, res) => {
+  // Use the accessor so we never rely on an internal variable
+  getBot()?.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Add CORS headers for Replit preview
+/* ------------------------------------------------------------------ */
+/*  CORS headers (e.g. for Replit preview)                            */
+/* ------------------------------------------------------------------ */
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  if (req.method === 'OPTIONS') {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+  );
+  if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
   next();
 });
 
-// Log API responses
+/* ------------------------------------------------------------------ */
+/*  Simple API‑response logger                                        */
+/* ------------------------------------------------------------------ */
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, unknown> | undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+  const originalJson = res.json.bind(res);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res.json = (body: any, ...args: any[]) => {
+    capturedJsonResponse = body;
+    return originalJson(body, ...args);
   };
 
   res.on("finish", () => {
+    if (!path.startsWith("/api")) return;
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-      log(logLine);
-    }
+    let line = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+    if (capturedJsonResponse)
+      line += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+    if (line.length > 80) line = line.slice(0, 79) + "…";
+    log(line);
   });
 
   next();
 });
 
+/* ------------------------------------------------------------------ */
+/*  Bootstrap everything                                              */
+/* ------------------------------------------------------------------ */
 (async () => {
   const server = await registerRoutes(app);
 
-  // ✅ Start bot (webhook mode only)
-  if (process.env.BOT_DISABLED !== 'true') {
-    initializeBot().catch(err => {
-      console.error('Bot initialization error:', err.message);
-    });
+  // Start Telegram bot (unless disabled)
+  if (process.env.BOT_DISABLED !== "true") {
+    initializeBot().catch((err) =>
+      console.error("Bot initialization error:", err.message)
+    );
   }
 
-  // Cleanup on exit
+  /* -------- graceful shutdown ------------------------------------ */
   const cleanup = async () => {
-    console.log('Cleaning up bot instance...');
-    const bot = getBot();
-    if (bot) {
+    console.log("Cleaning up bot instance…");
+    const currentBot = getBot();
+    if (currentBot) {
       try {
-        bot.removeAllListeners();
+        currentBot.removeAllListeners();
       } catch (error) {
-        console.error('Error during cleanup:', error);
+        console.error("Error during cleanup:", error);
       }
     }
     process.exit(0);
   };
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
 
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-
-  // Global error handler
+  /* -------- global express error handler ------------------------- */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    res.status(status).json({ message });
-    throw err;
+    res.status(status).json({ message: err.message || "Internal Server Error" });
+    throw err; // bubble up for logging
   });
 
-  // Serve frontend
+  /* -------- serve front‑end -------------------------------------- */
   if (app.get("env") === "development") {
-    await setupVite(app, server);
+    await setupVite(app, server); // Vite dev middleware / HMR
   } else {
-    serveStatic(app);
+    serveStatic(app);             // static dist/ assets
   }
 
-  // Start Express
+  /* -------- launch express --------------------------------------- */
   const port = 5000;
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     log(`serving on port ${port}`);
