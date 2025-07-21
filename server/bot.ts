@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────
-   src/bot.ts  – single, self‑contained Telegram‑bot module
+   src/bot.ts – single, self‑contained Telegram bot module
    ──────────────────────────────────────────────────────────────── */
 
 import TelegramBot, { ReplyKeyboardMarkup } from 'node-telegram-bot-api';
@@ -115,22 +115,31 @@ function attachHandlers() {
     promptInviteCode(m.chat.id, m.from!.id.toString())
   );
 
-  /* One message handler for buttons + invite codes */
+  /* One message handler for buttons + invite codes + numeric selects */
   bot.on('message', async (msg) => {
     if (!msg.text) return; // ignore stickers, photos, …
 
     const chatId = msg.chat.id;
     const uid = msg.from!.id.toString();
+    const text = msg.text.trim();
 
     /* 1️⃣ waiting for invitation code? */
     const pending = userStates.get(uid);
-    if (pending?.state === 'awaiting_code' && !msg.text.startsWith('/')) {
+    if (pending?.state === 'awaiting_code' && !text.startsWith('/')) {
       userStates.delete(uid);
-      return handleInvitationCode(chatId, uid, msg.text.trim().toUpperCase());
+      return handleInvitationCode(chatId, uid, text.toUpperCase());
     }
 
-    /* 2️⃣ otherwise treat as button press */
-    switch (msg.text) {
+    /* 2️⃣ numeric input – could be shop or raffle */
+    if (/^\d+$/.test(text)) {
+      const n = parseInt(text, 10);
+      if (await tryHandleShopSelection(chatId, uid, n)) return;
+      if (await tryHandleRaffleSelection(chatId, uid, n)) return;
+      // fall through – unknown number, ignore
+    }
+
+    /* 3️⃣ otherwise treat as button press */
+    switch (text) {
       case 'My Daily Reward':
         return cmdDaily(chatId, uid);
       case 'My Info':
@@ -358,6 +367,61 @@ async function handleInvitationCode(
     `✅ Code accepted! +${reward} coins.\nBalance: ${updated.coins}`,
     { reply_markup: kb.main }
   );
+}
+
+/* ───────────────  Numeric‑selection helpers ─────────────── */
+
+async function tryHandleShopSelection(
+  chatId: number,
+  uid: string,
+  index: number
+) {
+  const items = await storage.getActiveShopItems();
+  if (index < 1 || index > items.length) return false; // not a valid item #
+  const item = items[index - 1];
+
+  const user = await storage.getUserByTelegramId(uid);
+  if (!user) return true;
+  if (item.stock !== null && item.stock <= 0)
+    return bot?.sendMessage(chatId, '❌ That item is out of stock.');
+
+  if (user.coins < item.cost)
+    return bot?.sendMessage(chatId, '❌ Not enough coins.');
+
+  await storage.createPurchase({ userId: user.id, itemId: item.id, totalCost: item.cost });
+  await storage.updateUser(uid, { coins: user.coins - item.cost });
+  if (item.stock !== null) await storage.updateShopItem(item.id, { stock: item.stock - 1 });
+
+  bot?.sendMessage(chatId, `🛍️ Purchased **${item.name}** for ${item.cost} coins.`, {
+    parse_mode: 'Markdown',
+    reply_markup: kb.main,
+  });
+  return true;
+}
+
+async function tryHandleRaffleSelection(
+  chatId: number,
+  uid: string,
+  index: number
+) {
+  const raffles = await storage.getActiveRaffles();
+  if (index < 1 || index > raffles.length) return false;
+  const raffle = raffles[index - 1];
+
+  const user = await storage.getUserByTelegramId(uid);
+  if (!user) return true;
+  if (user.coins < raffle.entryCost)
+    return bot?.sendMessage(chatId, '❌ Not enough coins.');
+
+  await storage.enterRaffle({ userId: user.id, raffleId: raffle.id, entries: 1 });
+  await storage.updateUser(uid, { coins: user.coins - raffle.entryCost });
+  await storage.updateRaffle(raffle.id, { currentEntries: raffle.currentEntries + 1 });
+
+  bot?.sendMessage(chatId, `🎟️ Entered **${raffle.title}**! Good luck.`, {
+    parse_mode: 'Markdown',
+    reply_markup: kb.main,
+  });
+  return true;
 }
 
 /* ─────────────── Broadcast helper (optional admin API) ─────────────── */
