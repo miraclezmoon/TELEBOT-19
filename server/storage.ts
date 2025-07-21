@@ -1,13 +1,17 @@
-import { 
-  users, 
+/* ────────────────────────────────────────────────────────────────
+   src/storage.ts – Database access layer (Drizzle ORM)
+   ──────────────────────────────────────────────────────────────── */
+
+import {
+  users,
   admins,
-  transactions, 
-  raffles, 
-  raffleEntries, 
-  shopItems, 
-  purchases, 
+  transactions,
+  raffles,
+  raffleEntries,
+  shopItems,
+  purchases,
   botSettings,
-  type User, 
+  type User,
   type InsertUser,
   type Admin,
   type InsertAdmin,
@@ -22,78 +26,93 @@ import {
   type Purchase,
   type InsertPurchase,
   type BotSetting,
-  type InsertBotSetting
-} from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, and, sum, count, sql, avg } from "drizzle-orm";
+  type InsertBotSetting,
+} from '@shared/schema';
+import { db } from './db';
+import {
+  eq,
+  desc,
+  asc,
+  and,
+  sum,
+  count,
+  avg,
+  sql,
+} from 'drizzle-orm';
 
-// Helper function to convert date to PST
+/* ─────────────── Time helpers (PST) ─────────────── */
+
 function toPST(date: Date): Date {
-  // Create a new date with PST offset (-8 hours from UTC, or -7 during daylight saving)
-  const utcTime = date.getTime() + date.getTimezoneOffset() * 60000;
-  const pstOffset = -8 * 60 * 60000; // PST is UTC-8
-  return new Date(utcTime + pstOffset);
+  const utc = date.getTime() + date.getTimezoneOffset() * 60_000;
+  const pstOffset = -8 * 60 * 60_000; // UTC‑8
+  return new Date(utc + pstOffset);
 }
 
-// Helper function to check if user can claim daily reward (PST-based)
-function canClaimDailyReward(lastReward: Date | null): boolean {
-  if (!lastReward) return true;
-  
+function canClaimDailyReward(last: Date | null): boolean {
+  if (!last) return true;
   const nowPST = toPST(new Date());
-  const todayPST = new Date(nowPST.getFullYear(), nowPST.getMonth(), nowPST.getDate());
-  
-  const lastRewardPST = toPST(lastReward);
-  const lastRewardDayPST = new Date(lastRewardPST.getFullYear(), lastRewardPST.getMonth(), lastRewardPST.getDate());
-  
-  return todayPST.getTime() > lastRewardDayPST.getTime();
+  const todayPST = new Date(
+    nowPST.getFullYear(),
+    nowPST.getMonth(),
+    nowPST.getDate()
+  );
+  const lastPST = toPST(last);
+  const lastDayPST = new Date(
+    lastPST.getFullYear(),
+    lastPST.getMonth(),
+    lastPST.getDate()
+  );
+  return todayPST.getTime() > lastDayPST.getTime();
 }
+
+/* ─────────────── Storage interface ─────────────── */
 
 export interface IStorage {
-  // User operations
+  /* Users */
   getUserById(id: number): Promise<User | undefined>;
-  getUserByTelegramId(telegramId: string): Promise<User | undefined>;
-  getUserByReferralCode(referralCode: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  updateUser(telegramId: string, updates: Partial<User>): Promise<User>;
-  updateUserById(id: number, updates: Partial<User>): Promise<User>;
+  getUserByTelegramId(tid: string): Promise<User | undefined>;
+  getUserByReferralCode(code: string): Promise<User | undefined>;
+  createUser(u: InsertUser): Promise<User>;
+  updateUser(tid: string, patch: Partial<User>): Promise<User>;
+  updateUserById(id: number, patch: Partial<User>): Promise<User>;
   getAllUsers(): Promise<User[]>;
   getUserStats(): Promise<{ totalUsers: number; activeUsers: number; totalCoins: number }>;
-  awardReward(telegramId: string, amount: number, type: string, description: string): Promise<User>;
-  claimDaily(telegramId: string, amount: number): Promise<User>;
-  
-  // Admin operations
-  getAdminByUsername(username: string): Promise<Admin | undefined>;
-  createAdmin(admin: InsertAdmin): Promise<Admin>;
-  
-  // Transaction operations
-  createTransaction(transaction: InsertTransaction): Promise<Transaction>;
-  getUserTransactions(userId: number): Promise<Transaction[]>;
+  awardReward(tid: string, amt: number, type: string, desc: string): Promise<User>;
+  claimDaily(tid: string, amt: number): Promise<User>;
+
+  /* Admins */
+  getAdminByUsername(name: string): Promise<Admin | undefined>;
+  createAdmin(a: InsertAdmin): Promise<Admin>;
+
+  /* Transactions */
+  createTransaction(t: InsertTransaction): Promise<Transaction>;
+  getUserTransactions(uid: number): Promise<Transaction[]>;
   getAllTransactions(): Promise<Transaction[]>;
-  
-  // Raffle operations
-  createRaffle(raffle: InsertRaffle): Promise<Raffle>;
+
+  /* Raffles */
+  createRaffle(r: InsertRaffle): Promise<Raffle>;
   getAllRaffles(): Promise<Raffle[]>;
   getActiveRaffles(): Promise<Raffle[]>;
   getRaffleById(id: number): Promise<Raffle | undefined>;
-  updateRaffle(id: number, updates: Partial<Raffle>): Promise<Raffle>;
-  enterRaffle(entry: InsertRaffleEntry): Promise<RaffleEntry>;
-  getRaffleEntries(raffleId: number): Promise<any[]>;
-  
-  // Shop operations
-  createShopItem(item: InsertShopItem): Promise<ShopItem>;
+  updateRaffle(id: number, patch: Partial<Raffle>): Promise<Raffle>;
+  enterRaffle(e: InsertRaffleEntry): Promise<RaffleEntry>;
+  getRaffleEntries(rid: number): Promise<any[]>;
+
+  /* Shop */
+  createShopItem(i: InsertShopItem): Promise<ShopItem>;
   getAllShopItems(): Promise<ShopItem[]>;
   getActiveShopItems(): Promise<ShopItem[]>;
-  updateShopItem(id: number, updates: Partial<ShopItem>): Promise<ShopItem>;
-  createPurchase(purchase: InsertPurchase): Promise<Purchase>;
-  getUserPurchases(userId: number): Promise<Purchase[]>;
-  
-  // Bot settings
+  updateShopItem(id: number, patch: Partial<ShopItem>): Promise<ShopItem>;
+  createPurchase(p: InsertPurchase): Promise<Purchase>;
+  getUserPurchases(uid: number): Promise<Purchase[]>;
+
+  /* Settings */
   getBotSetting(key: string): Promise<BotSetting | undefined>;
-  setBotSetting(setting: InsertBotSetting): Promise<BotSetting>;
+  setBotSetting(s: InsertBotSetting): Promise<BotSetting>;
   getSettings(): Promise<Record<string, any>>;
-  updateSettings(updates: Record<string, any>): Promise<void>;
-  
-  // Dashboard stats
+  updateSettings(up: Record<string, any>): Promise<void>;
+
+  /* Dashboard / misc */
   getDashboardStats(): Promise<{
     totalUsers: number;
     totalCoins: number;
@@ -101,209 +120,209 @@ export interface IStorage {
     dailyLogins: number;
     recentUsers: User[];
   }>;
+  getActiveUsers(): Promise<{ telegramId: string }[]>;
 }
 
+/* ─────────────── Implementation ─────────────── */
+
 export class DatabaseStorage implements IStorage {
-  async getUserById(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+  /* ---------- Users ---------- */
+
+  async getUserById(id: number) {
+    const [u] = await db.select().from(users).where(eq(users.id, id));
+    return u;
   }
 
-  async getUserByTelegramId(telegramId: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.telegramId, telegramId));
-    return user || undefined;
+  async getUserByTelegramId(tid: string) {
+    const [u] = await db.select().from(users).where(eq(users.telegramId, tid));
+    return u;
   }
 
-  async getUserByReferralCode(referralCode: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.referralCode, referralCode));
-    return user || undefined;
+  async getUserByReferralCode(code: string) {
+    const [u] = await db.select().from(users).where(eq(users.referralCode, code));
+    return u;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
+  async createUser(u: InsertUser) {
+    const [created] = await db.insert(users).values(u).returning();
+    return created;
   }
 
-  async updateUser(telegramId: string, updates: Partial<User>): Promise<User> {
-    const [user] = await db
+  async updateUser(tid: string, patch: Partial<User>) {
+    const [u] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(users.telegramId, telegramId))
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(users.telegramId, tid))
       .returning();
-    return user;
+    return u;
   }
-  
-  async updateUserById(id: number, updates: Partial<User>): Promise<User> {
-    const [user] = await db
+
+  async updateUserById(id: number, patch: Partial<User>) {
+    const [u] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...patch, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user;
+    return u;
   }
 
-  async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).orderBy(desc(users.createdAt));
+  async getAllUsers() {
+    return db.select().from(users).orderBy(desc(users.createdAt));
   }
 
-  async getUserStats(): Promise<{ totalUsers: number; activeUsers: number; totalCoins: number }> {
-    const [stats] = await db
+  async getUserStats() {
+    const [row] = await db
       .select({
         totalUsers: count(),
         activeUsers: sum(sql`CASE WHEN ${users.isActive} THEN 1 ELSE 0 END`),
         totalCoins: sum(users.coins),
       })
       .from(users);
-    
     return {
-      totalUsers: Number(stats.totalUsers),
-      activeUsers: Number(stats.activeUsers),
-      totalCoins: Number(stats.totalCoins) || 0,
+      totalUsers: Number(row.totalUsers),
+      activeUsers: Number(row.activeUsers),
+      totalCoins: Number(row.totalCoins) || 0,
     };
   }
 
-  async awardReward(telegramId: string, amount: number, type: string, description: string): Promise<User> {
+  async awardReward(tid: string, amount: number, type: string, description: string) {
     return db.transaction(async (tx) => {
-      const [user] = await tx.select().from(users).where(eq(users.telegramId, telegramId)).for('update skip locked');
-      
-      if (!user) {
-        throw new Error('User not found');
-      }
-      
-      const newCoins = user.coins + amount;
-      if (newCoins < 0) {
-        throw new Error('Insufficient coins');
-      }
-      
-      const [updatedUser] = await tx
+      const [u] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.telegramId, tid))
+        .for('update skip locked');
+      if (!u) throw new Error('User not found');
+
+      if (u.coins + amount < 0) throw new Error('Insufficient coins');
+
+      const [updated] = await tx
         .update(users)
-        .set({ coins: newCoins, updatedAt: new Date() })
-        .where(eq(users.telegramId, telegramId))
+        .set({ coins: u.coins + amount, updatedAt: new Date() })
+        .where(eq(users.id, u.id))
         .returning();
-      
+
       await tx.insert(transactions).values({
-        userId: updatedUser.id,
+        userId: u.id,
         type,
         amount,
         description,
-        createdAt: new Date()
+        createdAt: new Date(),
       });
-      
-      return updatedUser;
-    });
-  }
 
-  async claimDaily(telegramId: string, amount: number): Promise<User> {
-    return db.transaction(async (tx) => {
-      const [user] = await tx.select().from(users).where(eq(users.telegramId, telegramId)).for('update skip locked');
-      
-      if (!user) {
-        throw new Error('User not found');
-      }
-      
-      if (!canClaimDailyReward(user.lastDailyReward)) {
-        throw new Error('Already claimed');
-      }
-      
-      let newStreak = 1;
-      if (user.lastDailyReward) {
-        const lastPST = toPST(new Date(user.lastDailyReward));
-        const nowPST = toPST(new Date());
-        const lastDay = new Date(lastPST.getFullYear(), lastPST.getMonth(), lastPST.getDate());
-        const today = new Date(nowPST.getFullYear(), nowPST.getMonth(), nowPST.getDate());
-        const diff = Math.floor((today.getTime() - lastDay.getTime()) / 86400000);
-        newStreak = diff === 1 ? (user.streak || 0) + 1 : 1;
-      }
-      
-      const updates = { 
-        coins: user.coins + amount, 
-        lastDailyReward: new Date(), 
-        streak: newStreak, 
-        updatedAt: new Date() 
-      };
-      
-      const [updated] = await tx
-        .update(users)
-        .set(updates)
-        .where(eq(users.telegramId, telegramId))
-        .returning();
-      
-      await tx.insert(transactions).values({ 
-        userId: updated.id, 
-        type: 'daily_reward', 
-        amount, 
-        description: 'Daily reward' 
-      });
-      
       return updated;
     });
   }
 
-  async getAdminByUsername(username: string): Promise<Admin | undefined> {
-    const [admin] = await db.select().from(admins).where(eq(admins.username, username));
-    return admin || undefined;
+  async claimDaily(tid: string, amount: number) {
+    return db.transaction(async (tx) => {
+      const [u] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.telegramId, tid))
+        .for('update skip locked');
+      if (!u) throw new Error('User not found');
+      if (!canClaimDailyReward(u.lastDailyReward)) throw new Error('Already claimed');
+
+      /* streak logic */
+      let newStreak = 1;
+      if (u.lastDailyReward) {
+        const diff = Math.floor(
+          (toPST(new Date()).getTime() - toPST(u.lastDailyReward).getTime()) /
+            86_400_000
+        );
+        newStreak = diff === 1 ? (u.streak ?? 0) + 1 : 1;
+      }
+
+      const [updated] = await tx
+        .update(users)
+        .set({
+          coins: u.coins + amount,
+          lastDailyReward: new Date(),
+          streak: newStreak,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, u.id))
+        .returning();
+
+      await tx.insert(transactions).values({
+        userId: u.id,
+        type: 'daily_reward',
+        amount,
+        description: 'Daily reward',
+      });
+
+      return updated;
+    });
   }
 
-  async createAdmin(insertAdmin: InsertAdmin): Promise<Admin> {
-    const [admin] = await db.insert(admins).values(insertAdmin).returning();
-    return admin;
+  /* ---------- Admins ---------- */
+
+  async getAdminByUsername(username: string) {
+    const [a] = await db.select().from(admins).where(eq(admins.username, username));
+    return a;
   }
 
-  async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
-    const [transaction] = await db.insert(transactions).values(insertTransaction).returning();
-    return transaction;
+  async createAdmin(a: InsertAdmin) {
+    const [created] = await db.insert(admins).values(a).returning();
+    return created;
   }
 
-  async getUserTransactions(userId: number): Promise<Transaction[]> {
-    return await db
+  /* ---------- Transactions ---------- */
+
+  async createTransaction(t: InsertTransaction) {
+    const [trx] = await db.insert(transactions).values(t).returning();
+    return trx;
+  }
+
+  async getUserTransactions(uid: number) {
+    return db
       .select()
       .from(transactions)
-      .where(eq(transactions.userId, userId))
+      .where(eq(transactions.userId, uid))
       .orderBy(desc(transactions.createdAt));
   }
 
-  async getAllTransactions(): Promise<Transaction[]> {
-    return await db.select().from(transactions).orderBy(desc(transactions.createdAt));
+  async getAllTransactions() {
+    return db.select().from(transactions).orderBy(desc(transactions.createdAt));
   }
 
-  async createRaffle(insertRaffle: InsertRaffle): Promise<Raffle> {
-    const [raffle] = await db.insert(raffles).values(insertRaffle).returning();
+  /* ---------- Raffles ---------- */
+
+  async createRaffle(r: InsertRaffle) {
+    const [raffle] = await db.insert(raffles).values(r).returning();
     return raffle;
   }
 
-  async getAllRaffles(): Promise<Raffle[]> {
-    return await db.select().from(raffles).orderBy(desc(raffles.createdAt));
+  async getAllRaffles() {
+    return db.select().from(raffles).orderBy(desc(raffles.createdAt));
   }
 
-  async getActiveRaffles(): Promise<Raffle[]> {
-    return await db
+  async getActiveRaffles() {
+    return db
       .select()
       .from(raffles)
       .where(and(eq(raffles.isActive, true), sql`${raffles.endDate} > NOW()`))
-      .orderBy(desc(raffles.createdAt));
+      .orderBy(asc(raffles.id));
   }
 
-  async getRaffleById(id: number): Promise<Raffle | undefined> {
-    const [raffle] = await db.select().from(raffles).where(eq(raffles.id, id));
-    return raffle || undefined;
+  async getRaffleById(id: number) {
+    const [r] = await db.select().from(raffles).where(eq(raffles.id, id));
+    return r;
   }
 
-  async updateRaffle(id: number, updates: Partial<Raffle>): Promise<Raffle> {
-    const [raffle] = await db
-      .update(raffles)
-      .set(updates)
-      .where(eq(raffles.id, id))
-      .returning();
-    return raffle;
+  async updateRaffle(id: number, patch: Partial<Raffle>) {
+    const [r] = await db.update(raffles).set(patch).where(eq(raffles.id, id)).returning();
+    return r;
   }
 
-  async enterRaffle(insertEntry: InsertRaffleEntry): Promise<RaffleEntry> {
-    const [entry] = await db.insert(raffleEntries).values(insertEntry).returning();
+  async enterRaffle(e: InsertRaffleEntry) {
+    const [entry] = await db.insert(raffleEntries).values(e).returning();
     return entry;
   }
 
-  async getRaffleEntries(raffleId: number): Promise<any[]> {
-    return await db
+  async getRaffleEntries(rid: number) {
+    return db
       .select({
         id: raffleEntries.id,
         raffleId: raffleEntries.raffleId,
@@ -316,232 +335,125 @@ export class DatabaseStorage implements IStorage {
           firstName: users.firstName,
           lastName: users.lastName,
           telegramId: users.telegramId,
-          coins: users.coins
-        }
+          coins: users.coins,
+        },
       })
       .from(raffleEntries)
       .innerJoin(users, eq(raffleEntries.userId, users.id))
-      .where(eq(raffleEntries.raffleId, raffleId))
+      .where(eq(raffleEntries.raffleId, rid))
       .orderBy(desc(raffleEntries.createdAt));
   }
 
-  async createShopItem(insertItem: InsertShopItem): Promise<ShopItem> {
-    const [item] = await db.insert(shopItems).values(insertItem).returning();
+  /* ---------- Shop ---------- */
+
+  async createShopItem(i: InsertShopItem) {
+    const [item] = await db.insert(shopItems).values(i).returning();
     return item;
   }
 
-  async getAllShopItems(): Promise<ShopItem[]> {
-    return await db.select().from(shopItems).orderBy(desc(shopItems.createdAt));
+  async getAllShopItems() {
+    return db.select().from(shopItems).orderBy(desc(shopItems.createdAt));
   }
 
-  async getActiveShopItems(): Promise<ShopItem[]> {
-    return await db
+  /** Order by ID ascending so numeric selection matches stable list */
+  async getActiveShopItems() {
+    return db
       .select()
       .from(shopItems)
       .where(eq(shopItems.isActive, true))
-      .orderBy(desc(shopItems.createdAt));
+      .orderBy(asc(shopItems.id));
   }
 
-  async updateShopItem(id: number, updates: Partial<ShopItem>): Promise<ShopItem> {
+  async updateShopItem(id: number, patch: Partial<ShopItem>) {
     const [item] = await db
       .update(shopItems)
-      .set(updates)
+      .set(patch)
       .where(eq(shopItems.id, id))
       .returning();
     return item;
   }
 
-  async createPurchase(insertPurchase: InsertPurchase): Promise<Purchase> {
-    const [purchase] = await db.insert(purchases).values(insertPurchase).returning();
+  async createPurchase(p: InsertPurchase) {
+    const [purchase] = await db.insert(purchases).values(p).returning();
     return purchase;
   }
 
-  async getUserPurchases(userId: number): Promise<Purchase[]> {
-    return await db
+  async getUserPurchases(uid: number) {
+    return db
       .select()
       .from(purchases)
-      .where(eq(purchases.userId, userId))
+      .where(eq(purchases.userId, uid))
       .orderBy(desc(purchases.createdAt));
   }
 
-  async getBotSetting(key: string): Promise<BotSetting | undefined> {
-    const [setting] = await db.select().from(botSettings).where(eq(botSettings.key, key));
-    return setting || undefined;
+  /* ---------- Settings ---------- */
+
+  async getBotSetting(key: string) {
+    const [s] = await db.select().from(botSettings).where(eq(botSettings.key, key));
+    return s;
   }
 
-  async setBotSetting(insertSetting: InsertBotSetting): Promise<BotSetting> {
-    const [setting] = await db
+  async setBotSetting(s: InsertBotSetting) {
+    const [updated] = await db
       .insert(botSettings)
-      .values(insertSetting)
+      .values(s)
       .onConflictDoUpdate({
         target: botSettings.key,
-        set: {
-          value: insertSetting.value,
-          updatedAt: new Date(),
-        },
+        set: { value: s.value, updatedAt: new Date() },
       })
       .returning();
-    return setting;
+    return updated;
   }
 
-  async getDashboardStats(): Promise<{
-    totalUsers: number;
-    totalCoins: number;
-    activeRaffles: number;
-    dailyLogins: number;
-    recentUsers: User[];
-  }> {
-    const [userStats] = await db
-      .select({
-        totalUsers: count(),
-        totalCoins: sum(users.coins),
-      })
-      .from(users);
+  async getSettings() {
+    const rows = await db.select().from(botSettings);
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }
 
-    const [raffleStats] = await db
-      .select({
-        activeRaffles: count(),
-      })
+  async updateSettings(up: Record<string, any>) {
+    for (const [k, v] of Object.entries(up)) {
+      await this.setBotSetting({ key: k, value: v });
+    }
+  }
+
+  /* ---------- Dashboard & misc ---------- */
+
+  async getDashboardStats() {
+    const [uStats] = await db
+      .select({ totalUsers: count(), totalCoins: sum(users.coins) })
+      .from(users);
+    const [rStats] = await db
+      .select({ activeRaffles: count() })
       .from(raffles)
       .where(and(eq(raffles.isActive, true), sql`${raffles.endDate} > NOW()`));
-
-    const [dailyStats] = await db
-      .select({
-        dailyLogins: count(),
-      })
+    const [dStats] = await db
+      .select({ dailyLogins: count() })
       .from(users)
       .where(sql`${users.lastDailyReward} >= CURRENT_DATE`);
 
-    const recentUsers = await db
+    const recent = await db
       .select()
       .from(users)
       .orderBy(desc(users.createdAt))
       .limit(10);
 
     return {
-      totalUsers: Number(userStats.totalUsers),
-      totalCoins: Number(userStats.totalCoins) || 0,
-      activeRaffles: Number(raffleStats.activeRaffles),
-      dailyLogins: Number(dailyStats.dailyLogins),
-      recentUsers,
+      totalUsers: Number(uStats.totalUsers),
+      totalCoins: Number(uStats.totalCoins) || 0,
+      activeRaffles: Number(rStats.activeRaffles),
+      dailyLogins: Number(dStats.dailyLogins),
+      recentUsers: recent,
     };
   }
 
-  async getSettings(): Promise<Record<string, any>> {
-    const settingsList = await db.select().from(botSettings);
-    const settings: Record<string, any> = {};
-    
-    for (const setting of settingsList) {
-      settings[setting.key] = setting.value;
-    }
-    
-    return settings;
-  }
-
-  async updateSettings(updates: Record<string, any>): Promise<void> {
-    for (const [key, value] of Object.entries(updates)) {
-      await this.setBotSetting({ key, value });
-    }
-  }
-
-  async resetAllUserPoints(): Promise<void> {
-    await db.transaction(async (tx) => {
-      // Get all users with their current coin balances
-      const allUsers = await tx.select().from(users);
-      
-      // Create transaction records for each user before resetting
-      for (const user of allUsers) {
-        if (user.coins > 0) {
-          await tx.insert(transactions).values({
-            userId: user.id,
-            type: 'admin_adjustment',
-            amount: -user.coins,
-            description: 'Admin reset all user points',
-          });
-        }
-      }
-      
-      // Now reset all user coins to 0
-      await tx
-        .update(users)
-        .set({ coins: 0 })
-        .where(sql`1=1`); // Update all users
-    });
-  }
-
-  async updateOnboardingProgress(telegramId: string, step: number, progress: Record<string, any>): Promise<User | null> {
-    const [user] = await db
-      .update(users)
-      .set({
-        onboardingStep: step,
-        tutorialProgress: progress,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.telegramId, telegramId))
-      .returning();
-    
-    return user || null;
-  }
-
-  async completeOnboarding(telegramId: string): Promise<User | null> {
-    const [user] = await db
-      .update(users)
-      .set({
-        onboardingCompleted: true,
-        onboardingStep: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.telegramId, telegramId))
-      .returning();
-    
-    return user || null;
-  }
-
-  async getOnboardingStats(): Promise<{
-    totalUsers: number;
-    completedOnboarding: number;
-    averageStep: number;
-  }> {
-    const [stats] = await db
-      .select({
-        totalUsers: count(),
-        completedOnboarding: count(sql`CASE WHEN ${users.onboardingCompleted} = true THEN 1 END`),
-        averageStep: avg(users.onboardingStep),
-      })
-      .from(users);
-
-    return {
-      totalUsers: Number(stats.totalUsers),
-      completedOnboarding: Number(stats.completedOnboarding),
-      averageStep: Math.round(Number(stats.averageStep) || 0),
-    };
-  }
-
-  async hasClaimedTutorialBonus(telegramId: string): Promise<boolean> {
-    // Check if user has ANY onboarding transaction (welcome bonus or completion bonus)
-    const bonusTransactions = await db
-      .select()
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, sql`(SELECT id FROM ${users} WHERE telegram_id = ${telegramId})`),
-          eq(transactions.type, 'onboarding')
-        )
-      );
-    
-    return bonusTransactions.length > 0;
-  }
-
-  async getActiveUsers(): Promise<{ telegramId: string }[]> {
-    const activeUsers = await db
-      .select({
-        telegramId: users.telegramId,
-      })
+  async getActiveUsers() {
+    return db
+      .select({ telegramId: users.telegramId })
       .from(users)
       .where(eq(users.isActive, true));
-    
-    return activeUsers;
   }
 }
+
+/* ─────────────── Export singleton ─────────────── */
 
 export const storage = new DatabaseStorage();
