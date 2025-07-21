@@ -6,21 +6,19 @@ import express, {
 } from 'express';
 import { registerRoutes } from './routes';
 import { setupVite, serveStatic, log } from './vite';
-import { initializeBot, getBot } from './bot'; // only these from bot.ts
+import { initializeBot, getBot } from './bot';
 
-/* ─────────────────────────  Express init  ───────────────────────── */
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-/* ─────────────────────  Telegram webhook  ──────────────────────── */
-/*  NOTE: path must match the URL you set in bot.ts (initializeBot)  */
+/* ─────────────── Telegram webhook route (MUST match bot.ts) ─────────────── */
 app.post('/api/telegram-webhook', (req, res) => {
-  getBot()?.processUpdate(req.body); // silently ignore if bot not ready
+  getBot()?.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-/* ───────────────────────────  CORS  ────────────────────────────── */
+/* ─────────────── CORS for preview deployments ─────────────── */
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header(
@@ -35,24 +33,24 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ───────────────────  Compact API logger  ──────────────────────── */
+/* ─────────────── Simple API logger ─────────────── */
 app.use((req, res, next) => {
-  const t0 = Date.now();
-  const { path } = req;
-  let bodyToLog: unknown;
+  const start = Date.now();
+  const path = req.path;
+  let captured: unknown;
+  const orig = res.json.bind(res);
 
-  const json = res.json.bind(res);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.json = (payload: any, ...args: any[]) => {
-    bodyToLog = payload;
-    return json(payload, ...args);
+  res.json = (body: any, ...args: any[]) => {
+    captured = body;
+    return orig(body, ...args);
   };
 
   res.on('finish', () => {
     if (!path.startsWith('/api')) return;
-    const ms = Date.now() - t0;
-    let line = `${req.method} ${path} ${res.statusCode} – ${ms} ms`;
-    if (bodyToLog) line += ` :: ${JSON.stringify(bodyToLog)}`;
+    const ms = Date.now() - start;
+    let line = `${req.method} ${path} ${res.statusCode} in ${ms}ms`;
+    if (captured) line += ` :: ${JSON.stringify(captured)}`;
     if (line.length > 90) line = line.slice(0, 89) + '…';
     log(line);
   });
@@ -60,44 +58,43 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ───────────────────────  Bootstrap  ───────────────────────────── */
+/* ─────────────── Bootstrap everything ─────────────── */
 (async () => {
   const server = await registerRoutes(app);
 
-  /* -------- Telegram bot ---------- */
+  /* Start Telegram bot (unless disabled) */
   if (process.env.BOT_DISABLED !== 'true') {
     initializeBot().catch((e) =>
-      console.error('Bot initialisation error:', e.message),
+      console.error('Bot init error:', e?.message || e),
     );
   }
 
-  /* -------- Graceful shutdown ----- */
-  const tidy = async () => {
-    console.log('🛑  Shutting down…');
+  /* graceful shutdown */
+  const cleanup = async () => {
+    console.log('Cleaning up bot…');
     getBot()?.removeAllListeners();
     process.exit(0);
   };
-  process.on('SIGINT', tidy);
-  process.on('SIGTERM', tidy);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 
-  /* -------- Global error handler -- */
+  /* global Express error handler */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     res.status(status).json({ message: err.message || 'Internal Server Error' });
-    throw err; // still surface it for logs
+    throw err;
   });
 
-  /* -------- Front‑end (Vite) ------ */
+  /* Front‑end (Vite dev vs static prod) */
   if (app.get('env') === 'development') {
-    await setupVite(app, server); // dev + HMR
+    await setupVite(app, server);
   } else {
-    serveStatic(app); // serve built assets from /dist
+    serveStatic(app);
   }
 
-  /* -------- Start server ---------- */
-  const port = Number(process.env.PORT) || 5000;
+  const port = 5000;
   server.listen({ port, host: '0.0.0.0', reusePort: true }, () =>
-    log(`🚀  Server listening on ${port}`),
+    log(`serving on port ${port}`),
   );
 })();
