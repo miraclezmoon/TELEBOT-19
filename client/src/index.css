@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0, 0%, 100%);
+  --foreground: hsl(20, 14.3%, 4.1%);
+  --muted: hsl(60, 4.8%, 95.9%);
+  --muted-foreground: hsl(25, 5.3%, 44.7%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(20, 14.3%, 4.1%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(20, 14.3%, 4.1%);
+  --border: hsl(20, 5.9%, 90%);
+  --input: hsl(20, 5.9%, 90%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(211, 100%, 99%);
+  --secondary: hsl(45, 93%, 47%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(60, 4.8%, 95.9%);
+  --accent-foreground: hsl(24, 9.8%, 10%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(60, 9.1%, 97.8%);
+  --success: hsl(122, 39%, 49%);
+  --success-foreground: hsl(0, 0%, 100%);
+  --warning: hsl(36, 100%, 50%);
+  --warning-foreground: hsl(0, 0%, 100%);
+  --error: hsl(4, 90%, 58%);
+  --error-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(20, 14.3%, 4.1%);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: hsl(240, 10%, 3.9%);
+  --foreground: hsl(0, 0%, 100%);
+  --muted: hsl(240, 3.7%, 15.9%);
+  --muted-foreground: hsl(0, 0%, 85%);
+  --popover: hsl(240, 10%, 3.9%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --card: hsl(240, 10%, 8%);
+  --card-foreground: hsl(0, 0%, 100%);
+  --border: hsl(240, 3.7%, 20%);
+  --input: hsl(240, 3.7%, 15.9%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(45, 93%, 47%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(240, 3.7%, 15.9%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --success: hsl(122, 39%, 49%);
+  --success-foreground: hsl(0, 0%, 100%);
+  --warning: hsl(36, 100%, 50%);
+  --warning-foreground: hsl(0, 0%, 100%);
+  --error: hsl(4, 90%, 58%);
+  --error-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(240, 4.9%, 83.9%);
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  
+  /* Ensure all text is white in dark mode */
+  .dark {
+    color-scheme: dark;
+  }
+  
+  .dark * {
+    color: inherit;
+  }
+  
+  /* Coin spinner animations */
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  
+  .animate-spin-slow {
+    animation: spin-slow 2s linear infinite;
+  }
+  
+  .animation-delay-200 {
+    animation-delay: 200ms;
+  }
+  
+  /* Coin rain animation */
+  @keyframes coin-fall {
+    0% {
+      transform: translateY(-50px) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(250px) rotate(360deg);
+      opacity: 0;
+    }
+  }
+  
+  .animate-coin-fall {
+    animation: coin-fall 3s ease-in-out infinite;
+  }
+}
