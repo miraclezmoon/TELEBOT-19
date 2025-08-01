@@ -1,4 +1,7 @@
 // server/index.ts
+import dotenv from 'dotenv';
+dotenv.config(); // 👈👈👈 LOAD .env VARIABLES RIGHT HERE — BEFORE ANYTHING ELSE
+
 import express, {
   type Request,
   type Response,
