@@ -1,0 +1,54 @@
+✅ No changes to commit. Your GitHub repository is up to date!
+~/workspace$ # After editing some files
+./update-github.sh
+
+# It will show:
+📝 Changes detected:
+ M client/src/pages/Dashboard.tsx
+ M server/routes.ts
+
+# You can type a message or just press Enter
+Please describe your changes:
+Added user analytics to dashboard
+
+# Then it automatically commits and pushes!
+===================================
+📤 GitHub Update Helper
+===================================
+
+✅ No changes to commit. Your GitHub repository is up to date!
+bash: 📝: command not found
+bash: M: command not found
+bash: M: command not found
+bash: Please: command not found
+bash: Added: command not found
+~/workspace$ git pull origin main --allow-unrelated-histories && git push -u origin main
+From https://github.com/miraclezmoon/TELEBOT-18
+ * branch            main       -> FETCH_HEAD
+hint: You have divergent branches and need to specify how to reconcile them.
+hint: You can do so by running one of the following commands sometime before
+hint: your next pull:
+hint:
+hint:   git config pull.rebase false  # merge
+hint:   git config pull.rebase true   # rebase
+hint:   git config pull.ff only       # fast-forward only
+hint:
+hint: You can replace "git config" with "git config --global" to set a default
+hint: preference for all repositories. You can also pass --rebase, --no-rebase,
+hint: or --ff-only on the command line to override the configured default per
+hint: invocation.
+fatal: Need to specify how to reconcile divergent branches.
+~/workspace$ git pull origin main --rebase && git push -u origin main
+From https://github.com/miraclezmoon/TELEBOT-18
+ * branch            main       -> FETCH_HEAD
+Auto-merging server/index.ts
+CONFLICT (content): Merge conflict in server/index.ts
+error: could not apply a830065... Connect the Telegram bot to the application to process user interactions
+hint: Resolve all conflicts manually, mark them as resolved with
+hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
+hint: You can instead skip this commit: run "git rebase --skip".
+hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
+hint: Disable this message with "git config set advice.mergeConflict false"
+Could not apply a830065... Connect the Telegram bot to the application to process user interactions
+~/workspace$ ./update-github.sh
+bash: ./update-github.sh: No such file or directory

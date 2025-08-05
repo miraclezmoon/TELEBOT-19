@@ -1,0 +1,18 @@
+{
+  "name": "telegram-bot-admin-panel",
+  "description": "24/7 Telegram Bot Admin Panel",
+  "image": "heroku/python",
+  "addons": [],
+  "env": {
+    "PORT": {
+      "description": "Port for the admin panel",
+      "value": "5000"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  }
+}

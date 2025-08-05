@@ -1,0 +1,75 @@
+~/workspace$ git add .
+git commit -m "Description of your changes"
+git push
+On branch main
+nothing to commit, working tree clean
+fatal: The current branch main has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin main
+
+To have this happen automatically for branches without a tracking
+upstream, see 'push.autoSetupRemote' in 'git help config'.
+
+~/workspace$ # After making changes in Replit
+git add .
+git commit -m "Added new feature: user analytics"
+git push
+
+# Or for a more detailed commit
+git add .
+git commit -m "Updated dashboard
+- Added user growth chart
+- Fixed date formatting
+- Improved mobile layout"
+git push
+On branch main
+nothing to commit, working tree clean
+fatal: The current branch main has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin main
+
+To have this happen automatically for branches without a tracking
+upstream, see 'push.autoSetupRemote' in 'git help config'.
+
+On branch main
+nothing to commit, working tree clean
+fatal: The current branch main has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin main
+
+To have this happen automatically for branches without a tracking
+upstream, see 'push.autoSetupRemote' in 'git help config'.
+
+~/workspace$ ./update-github.sh
+===================================
+📤 GitHub Update Helper
+===================================
+
+✅ No changes to commit. Your GitHub repository is up to date!
+~/workspace$ # After editing some files
+./update-github.sh
+
+# It will show:
+📝 Changes detected:
+ M client/src/pages/Dashboard.tsx
+ M server/routes.ts
+
+# You can type a message or just press Enter
+Please describe your changes:
+Added user analytics to dashboard
+
+# Then it automatically commits and pushes!
+===================================
+📤 GitHub Update Helper
+===================================
+
+✅ No changes to commit. Your GitHub repository is up to date!
+bash: 📝: command not found
+bash: M: command not found
+bash: M: command not found
+bash: Please: command not found
+bash: Added: command not found
+~/workspace$ 
