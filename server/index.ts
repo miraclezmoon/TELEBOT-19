@@ -1,6 +1,5 @@
-// server/index.ts
 import dotenv from 'dotenv';
-dotenv.config(); // 👈👈👈 LOAD .env VARIABLES RIGHT HERE — BEFORE ANYTHING ELSE
+dotenv.config(); // 👈 Load .env variables immediately
 
 import express, {
   type Request,
@@ -9,21 +8,21 @@ import express, {
 } from 'express';
 import { registerRoutes } from './routes';
 import { setupVite, serveStatic, log } from './vite';
-import { initializeBot, getBot } from './bot'; // only these from bot.ts
+import { initializeBot, getBot } from './bot';
 
-/* ─────────────────────────  Express init  ───────────────────────── */
 const app = express();
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-/* ─────────────────────  Telegram webhook  ──────────────────────── */
-/*  NOTE: path must match the URL you set in bot.ts (initializeBot)  */
+/* ───────────────────── Telegram Webhook ───────────────────── */
 app.post('/api/telegram-webhook', (req, res) => {
-  getBot()?.processUpdate(req.body); // silently ignore if bot not ready
+  console.log('🚀 Telegram webhook HIT! Body:', JSON.stringify(req.body));
+  getBot()?.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-/* ───────────────────────────  CORS  ────────────────────────────── */
+/* ─────────────────────────── CORS ─────────────────────────── */
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header(
@@ -38,14 +37,13 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ───────────────────  Compact API logger  ──────────────────────── */
+/* ────────────────────── API Logger ────────────────────────── */
 app.use((req, res, next) => {
   const t0 = Date.now();
   const { path } = req;
   let bodyToLog: unknown;
 
   const json = res.json.bind(res);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   res.json = (payload: any, ...args: any[]) => {
     bodyToLog = payload;
     return json(payload, ...args);
@@ -63,44 +61,36 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ───────────────────────  Bootstrap  ───────────────────────────── */
+/* ────────────────────── BOOTSTRAP ────────────────────────── */
 (async () => {
-  const server = await registerRoutes(app);
+  await registerRoutes(app);
 
-  /* -------- Telegram bot ---------- */
+  /* -------- Bootstrap -------- */
+(async () => {
+  await registerRoutes(app);
+
+  // ✅ Register Telegram webhook LAST — after routes, before static
+  app.post('/api/telegram-webhook', (req, res) => {
+    console.log('🚀 Telegram webhook HIT! Body:', JSON.stringify(req.body));
+    getBot()?.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+
   if (process.env.BOT_DISABLED !== 'true') {
     initializeBot().catch((e) =>
-      console.error('Bot initialisation error:', e.message),
+      console.error('Bot initialization error:', e.message),
     );
   }
 
-  /* -------- Graceful shutdown ----- */
-  const tidy = async () => {
-    console.log('🛑  Shutting down…');
-    getBot()?.removeAllListeners();
-    process.exit(0);
-  };
-  process.on('SIGINT', tidy);
-  process.on('SIGTERM', tidy);
-
-  /* -------- Global error handler -- */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    res.status(status).json({ message: err.message || 'Internal Server Error' });
-    throw err; // still surface it for logs
-  });
-
-  /* -------- Front‑end (Vite) ------ */
   if (app.get('env') === 'development') {
-    await setupVite(app, server); // dev + HMR
+    await setupVite(app);
   } else {
-    serveStatic(app); // serve built assets from /dist
+    serveStatic(app); // ← must be LAST
   }
 
-  /* -------- Start server ---------- */
   const port = Number(process.env.PORT) || 5000;
-  server.listen({ port, host: '0.0.0.0', reusePort: true }, () =>
-    log(`🚀  Server listening on ${port}`),
-  );
+  app.listen(port, () => {
+    log(`🚀 Server listening on port ${port}`);
+  });
 })();
+
