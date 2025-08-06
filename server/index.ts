@@ -14,6 +14,10 @@ const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.get('/__debug', (req, res) => {
+  res.send('✅ Backend route is working!');
+});
+
 
 /* ───────────── TELEGRAM WEBHOOK ROUTE (FIRST!) ───────────── */
 app.post('/api/telegram-webhook', (req, res) => {
