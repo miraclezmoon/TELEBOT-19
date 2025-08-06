@@ -56,11 +56,20 @@ app.use((req, res, next) => {
 
   // ✅ Only now, register webhook route
 app.post('/api/telegram-webhook', (req, res) => {
-  console.log('🚀 Telegram webhook HIT!');
-  console.log('🧪 Incoming body:', JSON.stringify(req.body, null, 2)); // <-- ADD THIS
+  console.log("🚀 Telegram webhook HIT!");
+  console.log("🧪 Request Body:", JSON.stringify(req.body, null, 2));
 
-  getBot()?.processUpdate(req.body);
+  const bot = getBot();
+
+  if (!bot) {
+    console.error("❌ BOT INSTANCE IS NULL");
+  } else {
+    console.log("✅ BOT IS READY — Processing update...");
+    bot.processUpdate(req.body);
+  }
+
   res.sendStatus(200);
+});
 });
 
   // ✅ Now serve frontend last — so it doesn't override any /api routes
