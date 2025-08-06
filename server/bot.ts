@@ -1,19 +1,12 @@
-// ────────────────────────────────────────────────────────────────
-// src/bot.ts   – single, self‑contained Telegram bot module
-// ────────────────────────────────────────────────────────────────
 import TelegramBot, { ReplyKeyboardMarkup } from 'node-telegram-bot-api';
 import { nanoid } from 'nanoid';
 import { storage } from './storage';
 
 /* ─────────────── Globals ─────────────── */
-
 let bot: TelegramBot | null = null;
-
-/** Ephemeral per‑user state (for the invitation‑code prompt) */
 const userStates = new Map<string, { state: 'awaiting_code'; timestamp: number }>();
 
-/* ─────────────── Helper utilities ─────────────── */
-
+/* ─────────────── Keyboard ─────────────── */
 const kb = {
   main: <ReplyKeyboardMarkup>{
     keyboard: [
@@ -26,24 +19,18 @@ const kb = {
   },
 };
 
+/* ─────────────── Utilities ─────────────── */
 const generateReferralCode = () => nanoid(8).toUpperCase();
-
 const pst = (d = new Date()) => new Date(d.getTime() - 8 * 60 * 60 * 1000);
 const isSamePstDay = (a: Date, b: Date) => {
-  const A = pst(a),
-    B = pst(b);
+  const A = pst(a), B = pst(b);
   return A.getFullYear() === B.getFullYear() &&
-    A.getMonth() === B.getMonth() &&
-    A.getDate() === B.getDate();
+         A.getMonth() === B.getMonth() &&
+         A.getDate() === B.getDate();
 };
 
-/* ─────────────── Boot‑strapping ─────────────── */
-
-/**
- * Call this once during server start‑up (index.ts).
- */
+/* ─────────────── Bot Initialization ─────────────── */
 export async function initializeBot() {
-  /* clean up any previous instance (hot‑reload etc.) */
   if (bot) {
     await bot.stopPolling().catch(() => {});
     bot.removeAllListeners();
@@ -63,7 +50,6 @@ export async function initializeBot() {
   const isProd = process.env.NODE_ENV === 'production';
   const publicDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
 
-  /* Create bot instance (polling in dev, webhook in prod) */
   bot = new TelegramBot(BOT_TOKEN, { polling: !isProd });
 
   if (isProd && publicDomain) {
@@ -75,21 +61,22 @@ export async function initializeBot() {
   }
 
   attachHandlers();
+  console.log('✅ Bot initialized and handlers attached');
+
   return bot;
 }
 
-/** Export for the rest of the server to grab the live instance */
 export const getBot = () => bot;
 
-/* ───────────────  Handlers  ─────────────── */
-
+/* ─────────────── Handlers ─────────────── */
 function attachHandlers() {
   if (!bot) return;
+
+  console.log('✅ attachHandlers() executing...');
 
   bot.on('polling_error', console.error);
   bot.on('error', console.error);
 
-  /* Slash commands (still allowed) */
   bot.onText(/^\/start(?:\s+(\S+))?/, (msg, m) => cmdStart(msg, m?.[1]));
   bot.onText(/^\/daily$/, (m) => cmdDaily(m.chat.id, m.from!.id.toString()));
   bot.onText(/^\/myinfo$/, (m) => cmdInfo(m.chat.id, m.from!.id.toString()));
@@ -98,48 +85,35 @@ function attachHandlers() {
   bot.onText(/^\/referral$/, (m) => cmdReferral(m.chat.id, m.from!.id.toString()));
   bot.onText(/^\/entercode$/, (m) => promptInviteCode(m.chat.id, m.from!.id.toString()));
 
-  /* One single message handler for ALL text – buttons + invite‑code */
   bot.on('message', async (msg) => {
-    if (!msg.text) return; // ignore photos, stickers, etc.
-
+    if (!msg.text) return;
     const chatId = msg.chat.id;
     const uid = msg.from!.id.toString();
 
-    /* 1️⃣  Were we waiting for an invitation code from this user? */
     const pending = userStates.get(uid);
     if (pending?.state === 'awaiting_code' && !msg.text.startsWith('/')) {
       userStates.delete(uid);
       return handleInvitationCode(chatId, uid, msg.text.trim().toUpperCase());
     }
 
-    /* 2️⃣  Otherwise treat as reply‑keyboard button press */
     switch (msg.text) {
-      case 'My Daily Reward':
-        return cmdDaily(chatId, uid);
-      case 'My Info':
-        return cmdInfo(chatId, uid);
-      case 'Shop Items':
-        return cmdShop(chatId, uid);
-      case 'Join A Raffle':
-        return cmdRaffles(chatId, uid);
-      case 'Invite A Friend':
-        return cmdReferral(chatId, uid);
-      case 'Enter Invitation Code':
-        return promptInviteCode(chatId, uid);
-      default:
-        return; // ignore other free‑text
+      case 'My Daily Reward': return cmdDaily(chatId, uid);
+      case 'My Info': return cmdInfo(chatId, uid);
+      case 'Shop Items': return cmdShop(chatId, uid);
+      case 'Join A Raffle': return cmdRaffles(chatId, uid);
+      case 'Invite A Friend': return cmdReferral(chatId, uid);
+      case 'Enter Invitation Code': return promptInviteCode(chatId, uid);
+      default: return;
     }
   });
 }
 
-/* ───────────────  Command implementations  ─────────────── */
-
+/* ─────────────── Commands ─────────────── */
 async function cmdStart(msg: TelegramBot.Message, referral?: string) {
   if (!bot) return;
   const chatId = msg.chat.id;
   const uid = msg.from!.id.toString();
 
-  /* Upsert user */
   let user = await storage.getUserByTelegramId(uid);
   if (!user) {
     user = await storage.createUser({
@@ -153,7 +127,6 @@ async function cmdStart(msg: TelegramBot.Message, referral?: string) {
     });
   }
 
-  /* Referral bonus (first time only) */
   if (referral && !user.referredBy) {
     const referrer = await storage.getUserByReferralCode(referral);
     if (referrer) {
@@ -216,10 +189,7 @@ async function cmdShop(chatId: number, uid: string) {
   if (!items.length) return bot.sendMessage(chatId, '🏪 Shop is empty.', { reply_markup: kb.main });
 
   const body = items
-    .map(
-      (it, i) =>
-        `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`,
-    )
+    .map((it, i) => `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`)
     .join('\n');
 
   bot.sendMessage(chatId, `🏪 Items:\n\n${body}\n\n(type item number to buy)`, {
@@ -233,10 +203,7 @@ async function cmdRaffles(chatId: number, uid: string) {
   if (!raffles.length) return bot.sendMessage(chatId, '🎪 No active raffles.', { reply_markup: kb.main });
 
   const body = raffles
-    .map(
-      (r, i) =>
-        `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`,
-    )
+    .map((r, i) => `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`)
     .join('\n\n');
 
   bot.sendMessage(chatId, `🎪 Raffles:\n\n${body}\n\n(type raffle number to enter)`, {
@@ -260,13 +227,11 @@ async function cmdReferral(chatId: number, uid: string) {
   );
 }
 
-/* Prompt invitation code (stores state) */
 function promptInviteCode(chatId: number, uid: string) {
   userStates.set(uid, { state: 'awaiting_code', timestamp: Date.now() });
   return bot?.sendMessage(chatId, 'Please send the invitation code:', { reply_markup: kb.main });
 }
 
-/* Handle the code the user typed */
 async function handleInvitationCode(chatId: number, uid: string, code: string) {
   if (!bot) return;
   const user = await storage.getUserByTelegramId(uid);
@@ -290,26 +255,4 @@ async function handleInvitationCode(chatId: number, uid: string, code: string) {
     `✅ Code accepted! +${reward} coins.\nBalance: ${updated.coins}`,
     { reply_markup: kb.main },
   );
-}
-
-/* ───────────────────────  Broadcast utility  ─────────────────────── */
-
-export async function broadcastMessage(message: string) {
-  if (!bot) throw new Error('Bot not initialised');
-
-  const users = await storage.getActiveUsers();
-  let ok = 0,
-    fail = 0;
-
-  for (const u of users) {
-    try {
-      await bot.sendMessage(u.telegramId, `📢 ${message}`);
-      ok++;
-      await new Promise((r) => setTimeout(r, 50)); // tiny delay to avoid spam
-    } catch (e) {
-      console.error('Broadcast error to', u.telegramId, e);
-      fail++;
-    }
-  }
-  return { success: ok, failed: fail };
 }
