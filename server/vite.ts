@@ -1,65 +1,67 @@
-import express, { type Express } from "express";
-import fs from "fs";
-import path from "path";
-import { createServer as createViteServer, createLogger } from "vite";
-import { type Server } from "http";
-import viteConfig from "../vite.config";
-import { nanoid } from "nanoid";
-A
+// vite.ts
+import express, { type Express } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createServer as createViteServer, createLogger } from 'vite';
+import viteConfig from '../vite.config';
+import { nanoid } from 'nanoid';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viteLogger = createLogger();
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
+export function log(message: string, source = 'express') {
+  const formattedTime = new Date().toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: true,
   });
-
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
-export async function setupVite(app: Express, server: Server) {
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true as const,
-  };
-
+/**
+ * Dev: attach Vite to Express in middleware mode.
+ * Usage (dev only): await setupVite(app)
+ */
+export async function setupVite(app: Express): Promise<void> {
   const vite = await createViteServer({
     ...viteConfig,
     configFile: false,
+    server: {
+      middlewareMode: true,
+      allowedHosts: true,
+    },
+    appType: 'custom',
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
+        // die fast on Vite config/runtime errors during dev
         process.exit(1);
       },
     },
-    server: serverOptions,
-    appType: "custom",
   });
 
   app.use(vite.middlewares);
-  app.use("*", async (req, res, next) => {
+
+  // SPA entry (index.html) via Vite transform
+  app.use('*', async (req, res, next) => {
     const url = req.originalUrl;
-
     try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
-        "client",
-        "index.html",
-      );
+      const clientTemplate = path.resolve(__dirname, '..', 'client', 'index.html');
 
-      // always reload the index.html file from disk incase it changes
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      // Always re-read template in dev
+      let template = await fs.promises.readFile(clientTemplate, 'utf-8');
+
+      // Bust HMR cache for the entry script (optional, but handy)
       template = template.replace(
         `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
+        `src="/src/main.tsx?v=${nanoid()}"`
       );
-      const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+
+      const html = await vite.transformIndexHtml(url, template);
+      res.status(200).setHeader('Content-Type', 'text/html').end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
@@ -67,19 +69,38 @@ export async function setupVite(app: Express, server: Server) {
   });
 }
 
-export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+/**
+ * Prod: serve built SPA from /client/dist (fallback to /public).
+ * Usage (prod only): serveStatic(app)
+ */
+export function serveStatic(app: Express): void {
+  const candidates = [
+    path.resolve(__dirname, '..', 'client', 'dist'),
+    path.resolve(__dirname, 'public'),
+  ];
+  const distPath = candidates.find(fs.existsSync);
 
-  if (!fs.existsSync(distPath)) {
+  if (!distPath) {
     throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
+      `Could not find a build directory.\nLooked in:\n- ${candidates.join(
+        '\n- '
+      )}\nDid you run "npm run build" in /client?`
     );
   }
 
-  app.use("*", (req, res, next) => {
-  // ✅ Don't override the Telegram webhook with React
-  if (req.originalUrl === "/api/telegram-webhook") return next();
+  // Long-cache hashed assets
+  app.use(
+    '/assets',
+    express.static(path.join(distPath, 'assets'), { maxAge: '1y', immutable: true })
+  );
 
-  res.sendFile(path.resolve(distPath, "index.html"));
-});
+  // Other static files
+  app.use(express.static(distPath));
 
+  // SPA fallback — but don't catch Telegram webhooks
+  app.use('*', (req, res, next) => {
+    const u = req.originalUrl;
+    if (u === '/telegram/webhook' || u === '/api/telegram-webhook') return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}

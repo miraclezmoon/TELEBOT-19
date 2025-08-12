@@ -6,6 +6,18 @@ import { storage } from './storage';
 let bot: TelegramBot | null = null;
 const userStates = new Map<string, { state: 'awaiting_code'; timestamp: number }>();
 
+export const getBot = () => bot;
+
+/* ─────────────── BotFather menu (single source of truth) ─────────────── */
+const COMMANDS = [
+  { command: 'start',    description: 'Start / account intro' },
+  { command: 'shop',     description: 'Open shop' },
+  { command: 'raffle',   description: 'Join raffles' },
+  { command: 'balance',  description: 'View balance' },
+  { command: 'withdraw', description: 'Withdraw funds' },
+  { command: 'help',     description: 'Help & commands' },
+] as const;
+
 /* ─────────────── Keyboard ─────────────── */
 const kb = {
   main: <ReplyKeyboardMarkup>{
@@ -21,77 +33,125 @@ const kb = {
 
 /* ─────────────── Utilities ─────────────── */
 const generateReferralCode = () => nanoid(8).toUpperCase();
-const pst = (d = new Date()) => new Date(d.getTime() - 8 * 60 * 60 * 1000);
-const isSamePstDay = (a: Date, b: Date) => {
-  const A = pst(a), B = pst(b);
-  return A.getFullYear() === B.getFullYear() &&
-         A.getMonth() === B.getMonth() &&
-         A.getDate() === B.getDate();
+
+// Compare same calendar day in a specific timezone (DST-safe)
+const isSameLocalDay = (a: Date | string | number, b: Date | string | number, tz = 'America/Vancouver') => {
+  const fmt = (d: Date) => d.toLocaleString('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  return fmt(new Date(a)) === fmt(new Date(b));
 };
 
-/* ─────────────── Bot Initialization ─────────────── */
+/* ─────────────── Initialization ─────────────── */
 export async function initializeBot() {
+  // cleanup on re-init
   if (bot) {
-    await bot.stopPolling().catch(() => {});
+    try { await bot.deleteWebHook({ drop_pending_updates: true }); } catch {}
+    try { await bot.stopPolling(); } catch {}
     bot.removeAllListeners();
     bot = null;
   }
 
-  const BOT_TOKEN =
-    (await storage.getBotSetting('bot_token'))?.value ||
-    process.env.BOT_TOKEN ||
-    process.env.TELEGRAM_BOT_TOKEN;
+  const token = (await storage.getBotSetting('bot_token'))?.value
+    ?? process.env.BOT_TOKEN
+    ?? process.env.TELEGRAM_BOT_TOKEN;
 
-  if (!BOT_TOKEN) {
-    console.error('⚠️  BOT_TOKEN missing – set it as an env var or DB setting');
+  if (!token) {
+    console.error('⚠️ BOT_TOKEN missing — set env or DB setting');
     return null;
   }
 
+  bot = new TelegramBot(token, { polling: false });
+
   const isProd = process.env.NODE_ENV === 'production';
-  const publicDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+  if (isProd) {
+    const base = process.env.WEBHOOK_URL
+      || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined)
+      || (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : undefined);
 
-  bot = new TelegramBot(BOT_TOKEN, { polling: !isProd });
+    if (!base) {
+      console.warn('⚠️ WEBHOOK_URL/RAILWAY_* not set. SetWebhook may fail.');
+    }
 
-  if (isProd && publicDomain) {
-    const webhookUrl = `https://${publicDomain}/api/telegram-webhook`;
-    await bot.setWebHook(webhookUrl).catch((e) => console.error('Webhook error', e));
-    console.log('✅ Webhook set:', webhookUrl);
+    const url = `${base || ''}/telegram/webhook`;
+    try {
+      await bot.setWebHook(url, {
+        secret_token: process.env.TELEGRAM_SECRET,
+        drop_pending_updates: true,
+      } as any);
+      console.log('✅ Webhook set:', url);
+    } catch (e) {
+      console.error('setWebHook error:', e);
+    }
   } else {
-    console.log('✅ Bot running in polling mode');
+    try { await bot.deleteWebHook({ drop_pending_updates: true }); } catch {}
+    bot.startPolling();
+    console.log('✅ Polling mode (development)');
+  }
+
+  // Seed BotFather menus (all scopes)
+  try {
+    await bot.setMyCommands(COMMANDS as any);
+    await bot.setMyCommands(COMMANDS as any, { scope: { type: 'all_private_chats' } as any });
+    await bot.setMyCommands(COMMANDS as any, { scope: { type: 'all_group_chats' } as any });
+  } catch (e) {
+    console.error('setMyCommands error:', e);
   }
 
   attachHandlers();
   console.log('✅ Bot initialized and handlers attached');
-
   return bot;
 }
 
-export const getBot = () => bot;
-
-/* ─────────────── Handlers ─────────────── */
+/* ─────────────── Handler wiring (unified + aliases) ─────────────── */
 function attachHandlers() {
   if (!bot) return;
 
-  console.log('✅ attachHandlers() executing...');
+  // Diagnostics
+  bot.on('polling_error', (e) => console.error('polling_error:', e));
+  bot.on('error', (e) => console.error('bot error:', e));
+  bot.on('message', (msg) => {
+    const ent = msg.entities?.find((e) => e.type === 'bot_command');
+    if (!ent || typeof msg.text !== 'string') return;
+    const { offset, length } = ent;
+    const command = msg.text.slice(offset, offset + length);
+    const payload = msg.text.slice(offset + length).trim();
+    console.log('[CMD]', command, '| payload:', payload, '| chat:', msg.chat.type);
+  });
 
-  bot.on('polling_error', console.error);
-  bot.on('error', console.error);
+  // Helper to register /cmd and /cmd@Bot with optional payload
+  const onCmd = (name: string, fn: (msg: TelegramBot.Message, payload?: string) => any) => {
+    const re = new RegExp(`^\\/${name}(?:@[\\w_]+)?(?:\\s+(.+))?$`, 'i');
+    bot!.onText(re, (msg, m) => fn(msg, m?.[1]));
+  };
 
-  bot.onText(/^\/start(?:\s+(\S+))?/, (msg, m) => cmdStart(msg, m?.[1]));
-  bot.onText(/^\/daily$/, (m) => cmdDaily(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/myinfo$/, (m) => cmdInfo(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/shop$/, (m) => cmdShop(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/raffle$/, (m) => cmdRaffles(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/referral$/, (m) => cmdReferral(m.chat.id, m.from!.id.toString()));
-  bot.onText(/^\/entercode$/, (m) => promptInviteCode(m.chat.id, m.from!.id.toString()));
+  // Canonical commands
+  onCmd('start', (msg, referral) => cmdStart(msg, referral));
+  onCmd('shop', (m) => cmdShop(m.chat.id, m.from!.id.toString()));
+  onCmd('raffle', (m) => cmdRaffles(m.chat.id, m.from!.id.toString()));
+  onCmd('balance', (m) => cmdInfo(m.chat.id, m.from!.id.toString()));
+  onCmd('withdraw', (m) => cmdWithdraw(m.chat.id, m.from!.id.toString()));
+  onCmd('help', (m) => cmdHelp(m.chat.id));
 
-  bot.on('message', async (msg) => {
+  // Backwards-compatible aliases (old names)
+  onCmd('raffles', (m) => cmdRaffles(m.chat.id, m.from!.id.toString()));
+  onCmd('myinfo', (m) => cmdInfo(m.chat.id, m.from!.id.toString()));
+  onCmd('cashout', (m) => cmdWithdraw(m.chat.id, m.from!.id.toString()));
+  onCmd('redeem', (m) => cmdWithdraw(m.chat.id, m.from!.id.toString()));
+  onCmd('daily', (m) => cmdDaily(m.chat.id, m.from!.id.toString()));
+  onCmd('referral', (m) => cmdReferral(m.chat.id, m.from!.id.toString()));
+  onCmd('entercode', (m) => promptInviteCode(m.chat.id, m.from!.id.toString()));
+
+  // Reply keyboard actions
+  bot!.on('message', async (msg) => {
     if (!msg.text) return;
+    // Ignore commands here (already handled above)
+    if (msg.entities?.some((e) => e.type === 'bot_command')) return;
+
     const chatId = msg.chat.id;
     const uid = msg.from!.id.toString();
 
+    // Invitation code capture state
     const pending = userStates.get(uid);
-    if (pending?.state === 'awaiting_code' && !msg.text.startsWith('/')) {
+    if (pending?.state === 'awaiting_code') {
       userStates.delete(uid);
       return handleInvitationCode(chatId, uid, msg.text.trim().toUpperCase());
     }
@@ -131,7 +191,7 @@ async function cmdStart(msg: TelegramBot.Message, referral?: string) {
     const referrer = await storage.getUserByReferralCode(referral);
     if (referrer) {
       const reward = +((await storage.getBotSetting('referral_reward_amount'))?.value || 1);
-      await storage.awardReward(referrer.telegramId, reward, 'referral', `Invited ${user.username}`);
+      await storage.awardReward(referrer.telegramId, reward, 'referral', `Invited ${user.username ?? uid}`);
       await storage.awardReward(uid, reward, 'referral', 'Referral welcome bonus');
       await storage.updateUser(uid, { referredBy: referral });
       user.coins += reward;
@@ -151,7 +211,7 @@ async function cmdDaily(chatId: number, uid: string) {
   const user = await storage.getUserByTelegramId(uid);
   if (!user) return bot.sendMessage(chatId, 'Please /start first');
 
-  if (user.lastDailyReward && isSamePstDay(user.lastDailyReward, new Date())) {
+  if (user.lastDailyReward && isSameLocalDay(user.lastDailyReward, new Date())) {
     return bot.sendMessage(chatId, '⏰ Already claimed today. Come back tomorrow!');
   }
 
@@ -173,7 +233,7 @@ async function cmdInfo(chatId: number, uid: string) {
   const txs = await storage.getUserTransactions(user.id);
   const recent = txs
     .slice(0, 5)
-    .map((t) => `${t.amount > 0 ? '+' : ''}${t.amount} – ${t.description}`)
+    .map((t: any) => `${t.amount > 0 ? '+' : ''}${t.amount} – ${t.description}`)
     .join('\n') || 'None yet';
 
   bot.sendMessage(
@@ -189,12 +249,10 @@ async function cmdShop(chatId: number, uid: string) {
   if (!items.length) return bot.sendMessage(chatId, '🏪 Shop is empty.', { reply_markup: kb.main });
 
   const body = items
-    .map((it, i) => `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`)
+    .map((it: any, i: number) => `${i + 1}. ${it.name} – ${it.cost} coins${it.stock !== null ? ` (stock ${it.stock})` : ''}`)
     .join('\n');
 
-  bot.sendMessage(chatId, `🏪 Items:\n\n${body}\n\n(type item number to buy)`, {
-    reply_markup: kb.main,
-  });
+  bot.sendMessage(chatId, `🏪 Items:\n\n${body}\n\n(type item number to buy)`, { reply_markup: kb.main });
 }
 
 async function cmdRaffles(chatId: number, uid: string) {
@@ -203,12 +261,10 @@ async function cmdRaffles(chatId: number, uid: string) {
   if (!raffles.length) return bot.sendMessage(chatId, '🎪 No active raffles.', { reply_markup: kb.main });
 
   const body = raffles
-    .map((r, i) => `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`)
+    .map((r: any, i: number) => `${i + 1}. ${r.title}\n   Prize: ${r.prizeDescription}\n   Cost: ${r.entryCost} coins`)
     .join('\n\n');
 
-  bot.sendMessage(chatId, `🎪 Raffles:\n\n${body}\n\n(type raffle number to enter)`, {
-    reply_markup: kb.main,
-  });
+  bot.sendMessage(chatId, `🎪 Raffles:\n\n${body}\n\n(type raffle number to enter)`, { reply_markup: kb.main });
 }
 
 async function cmdReferral(chatId: number, uid: string) {
@@ -220,11 +276,7 @@ async function cmdReferral(chatId: number, uid: string) {
   const me = await bot.getMe();
   const link = `https://t.me/${me.username}?start=${user.referralCode}`;
 
-  bot.sendMessage(
-    chatId,
-    `🔗 Share: ${link}\nBoth of you earn ${reward} coin${reward > 1 ? 's' : ''}!`,
-    { reply_markup: kb.main },
-  );
+  bot.sendMessage(chatId, `🔗 Share: ${link}\nBoth of you earn ${reward} coin${reward > 1 ? 's' : ''}!`, { reply_markup: kb.main });
 }
 
 function promptInviteCode(chatId: number, uid: string) {
@@ -246,13 +298,50 @@ async function handleInvitationCode(chatId: number, uid: string, code: string) {
   }
 
   const reward = +((await storage.getBotSetting('referral_reward_amount'))?.value || 1);
-  await storage.awardReward(owner.telegramId, reward, 'referral', `Invited ${user.username}`);
+  await storage.awardReward(owner.telegramId, reward, 'referral', `Invited ${user.username ?? uid}`);
   const updated = await storage.awardReward(uid, reward, 'referral', 'Used invitation code');
   await storage.updateUser(uid, { referredBy: code });
 
-  bot.sendMessage(
+  bot.sendMessage(chatId, `✅ Code accepted! +${reward} coins.\nBalance: ${updated.coins}`, { reply_markup: kb.main });
+}
+
+async function cmdWithdraw(chatId: number, uid: string) {
+  // Placeholder — wire to your real withdrawal flow if available
+  return bot?.sendMessage(
     chatId,
-    `✅ Code accepted! +${reward} coins.\nBalance: ${updated.coins}`,
+    '💵 Withdrawal: use the Shop to redeem or contact support. (You can alias /cashout and /redeem to this.)',
     { reply_markup: kb.main },
   );
+}
+
+function cmdHelp(chatId: number) {
+  const lines = [
+    '/start — Start / account intro',
+    '/shop — Open shop',
+    '/raffle — Join raffles',
+    '/balance — View balance (also: /myinfo)',
+    '/withdraw — Withdraw funds (also: /cashout, /redeem)',
+    '/daily — Claim daily reward',
+    '/referral — Your invite link',
+    '/entercode — Enter invitation code',
+  ];
+  return bot?.sendMessage(chatId, `📖 Help\n\n${lines.join('\n')}`, { reply_markup: kb.main });
+}
+
+/* ─────────────── Broadcast helper (used by /api/broadcast) ─────────────── */
+export async function broadcastMessage(message: string) {
+  if (!bot) throw new Error('Bot is not initialized');
+  const users = await storage.getAllUsers();
+  const targets = users.filter((u: any) => u.telegramId);
+  let success = 0, failed = 0;
+  for (const u of targets) {
+    try {
+      await bot.sendMessage(u.telegramId, message, { parse_mode: 'Markdown' });
+      success++;
+      await new Promise((r) => setTimeout(r, 50)); // rate-limit
+    } catch {
+      failed++;
+    }
+  }
+  return { success, failed };
 }

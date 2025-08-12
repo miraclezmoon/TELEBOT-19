@@ -1,14 +1,19 @@
+// index.ts
 import dotenv from 'dotenv';
 dotenv.config();
 
 import express, { Request, Response, NextFunction } from 'express';
 import { registerRoutes } from './routes';
 import { setupVite, serveStatic, log } from './vite';
-import { initializeBot, getBot } from './bot';
+import { initializeBot } from './bot';
 
 const app = express();
 
-app.use(express.json());
+// Behind Railway/Render/etc.
+app.set('trust proxy', 1);
+
+// Parse bodies (Telegram needs JSON parsed)
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 /* ───────────── CORS HEADERS ───────────── */
@@ -33,7 +38,7 @@ app.use((req, res, next) => {
   let bodyToLog: unknown;
 
   const json = res.json.bind(res);
-  res.json = (payload: any, ...args: any[]) => {
+  (res as any).json = (payload: any, ...args: any[]) => {
     bodyToLog = payload;
     return json(payload, ...args);
   };
@@ -52,48 +57,40 @@ app.use((req, res, next) => {
 
 /* ───────────── Server Bootstrap ───────────── */
 (async () => {
-  await registerRoutes(app); // Register normal API routes
+  // Registers all routes, including /healthz and /telegram/webhook
+  registerRoutes(app);
 
-  // ✅ Only now, register webhook route
-app.post('/api/telegram-webhook', (req, res) => {
-  console.log("🚀 Telegram webhook HIT!");
-  console.log("🧪 Request Body:", JSON.stringify(req.body, null, 2));
-
-  const bot = getBot();
-
-  if (!bot) {
-    console.error("❌ BOT INSTANCE IS NULL");
-  } else {
-    console.log("✅ BOT IS READY — Processing update...");
-    bot.processUpdate(req.body);
-  }
-
-  res.sendStatus(200);
-});
-});
-
-  // ✅ Now serve frontend last — so it doesn't override any /api routes
+  // Serve frontend last so it doesn't shadow /api or webhook routes
   if (app.get('env') === 'development') {
     await setupVite(app);
   } else {
-    serveStatic(app); // Serve React AFTER everything else
-  }
-
-  if (process.env.BOT_DISABLED !== 'true') {
-    initializeBot().catch((e) =>
-      console.error('Bot initialization error:', e.message),
-    );
+    serveStatic(app);
   }
 
   // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     res.status(status).json({ message: err.message || 'Internal Server Error' });
-    throw err;
   });
 
   const port = Number(process.env.PORT) || 5000;
-  app.listen(port, () => {
+  const host = '0.0.0.0';
+
+  app.listen(port, host, async () => {
     log(`🚀 Server listening on port ${port}`);
+
+    // Initialize the Telegram bot AFTER server is up, so webhook URL is reachable
+    if (process.env.BOT_DISABLED !== 'true') {
+      try {
+        await initializeBot();
+      } catch (e: any) {
+        console.error('Bot initialization error:', e?.message || e);
+      }
+    } else {
+      log('⚠️ Bot disabled via BOT_DISABLED=true');
+    }
   });
-})();
+})().catch((err) => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
+});
